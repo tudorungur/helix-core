@@ -161,36 +161,70 @@ scheduled Lambda refreshes the token before expiry.
 
 ## 5. AWS architecture
 
-```
-┌─────────────┐     ┌──────────────┐     ┌───────────────────────┐
-│ Expo App    │────▶│ API Gateway  │────▶│ Lambda (Node/TS, per   │
-│ (iOS/Android)│    │ + Cognito     │     │ bounded context:       │
-└─────────────┘     │  Authorizer  │     │ accounts, properties,  │
-       │            └──────────────┘     │ tenancies, readings,   │
-       │ presigned URL                   │ invoices, payments,    │
-       ▼                                  │ anaf-integration)      │
-┌─────────────┐                          └───────────┬───────────┘
-│ S3           │◀─── photo upload                    │
-│ meter-photos │                                       ▼
-│ invoices-pdf │                          ┌───────────────────────┐
-└─────────────┘                          │ Aurora PostgreSQL      │
-       │                                  │ Serverless v2 (+ RDS   │
-       ▼                                  │ Proxy)                 │
-┌─────────────┐                          └───────────────────────┘
-│ Bedrock      │◀── Lambda invokes on photo upload (vision model)
-└─────────────┘
-┌─────────────┐   ┌───────────────┐   ┌────────────┐   ┌──────────┐
-│EventBridge   │──▶│ Step Functions│──▶│ SES (email)│   │ Netopia  │
-│ Scheduler    │   │ (invoicing +  │   │ Expo Push  │   │ (webhook │
-│ (reminders,  │   │ ANAF submit,  │   └────────────┘   │ Lambda)  │
-│ monthly cycle,│  │ with retry)   │                     └──────────┘
-│ daily BNR fetch)└───────────────┘
-└─────────────┘           │
-                            ▼
-                  ┌───────────────────┐
-                  │ bnr_exchange_rates │ (Aurora table, fed by a daily
-                  │                    │  Lambda reading BNR's public XML feed)
-                  └───────────────────┘
+```mermaid
+flowchart TB
+    subgraph Client["📱 Mobile Client"]
+        App["Expo App (iOS / Android)"]
+    end
+
+    subgraph Edge["Edge / Auth"]
+        APIGW["API Gateway"]
+        Cog["Cognito Authorizer"]
+        APIGW --> Cog
+    end
+
+    subgraph Storage["Object Storage (S3)"]
+        S3Photos["meter-photos/"]
+        S3Invoices["invoices-pdf/"]
+    end
+
+    subgraph Compute["Lambda (Node/TS) — one function per bounded context"]
+        L["accounts · properties · tenancies\nreadings · invoices · payments · anaf-integration"]
+    end
+
+    subgraph Data["Data Layer"]
+        Aurora["Aurora PostgreSQL Serverless v2 + RDS Proxy\n(core tables + bnr_exchange_rates)"]
+    end
+
+    subgraph AI["AI"]
+        Bedrock["Amazon Bedrock\n(vision model — meter reading OCR)"]
+    end
+
+    subgraph Secrets["Secrets & Keys"]
+        SM["Secrets Manager + KMS\n(ANAF OAuth tokens, Netopia keys)"]
+    end
+
+    subgraph Async["Scheduled / Async Workflows"]
+        EB["EventBridge Scheduler\n(monthly reminders, daily BNR rate fetch)"]
+        SF["Step Functions\n(monthly invoicing batch, ANAF submit + retry)"]
+        EB --> SF
+    end
+
+    subgraph Notify["Notifications"]
+        SES["SES (email)"]
+        Push["Expo Push"]
+    end
+
+    subgraph External["External Systems"]
+        ANAF["ANAF SPV\n(e-Factura OAuth)"]
+        Netopia["Netopia Payments\n(hosted checkout)"]
+    end
+
+    App -->|"HTTPS + Cognito JWT"| APIGW
+    App -->|"presigned URL upload"| S3Photos
+    App -.->|"hosted checkout redirect"| Netopia
+    Cog --> L
+    S3Photos -->|"upload event"| L
+    L --> Aurora
+    L --> Bedrock
+    L --> SM
+    L -->|"submit invoice"| ANAF
+    Netopia -.->|"payment webhook"| L
+    SF --> Aurora
+    SF -->|"ANAF submission"| L
+    SF --> SES
+    SF --> Push
+    L --> S3Invoices
 ```
 
 AWS services used: Cognito, API Gateway, Lambda, Aurora Serverless v2, RDS Proxy, S3, Bedrock,
