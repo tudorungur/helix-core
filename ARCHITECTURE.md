@@ -1,4 +1,4 @@
-# 🏢 indexo - Application architecture and feature tree
+# - 🏢 indexo - Application architecture and feature tree
 
 This document outlines the hierarchical tree structure of the utility property management application, divided strictly between backend cloud infrastructure and frontend mobile layers.
 
