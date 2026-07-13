@@ -66,7 +66,7 @@ users (Cognito sub) ──┬── account_memberships ──> accounts ──>
   `rent_amount`, `rent_currency [EUR|RON]` (base rent as negotiated — in Romania typically EUR-indexed even
   when invoiced in RON; kept flexible for contracts already denominated in RON).
 - **bnr_exchange_rates** — daily FX reference rates cached from BNR's public feed.
-  `id`, `rate_date`, `currency (e.g. EUR)`, `rate_to_ron`. Populated by a scheduled job (see §4.6, §5); never
+  `id`, `rate_date`, `currency (e.g. EUR)`, `rate_to_ron`. Populated by a scheduled job (see §4.6, §6); never
   fetched synchronously during invoice generation so the rate used is always reproducible/auditable.
 - **tenancy_memberships** — links tenant users to a tenancy (global identity — a user can have
   tenancy_memberships on units belonging to different accounts/landlords).
@@ -159,7 +159,87 @@ Settings → "Connect ANAF" → redirect to the SPV authorize endpoint → callb
 for an `access_token`/`refresh_token` → encrypted storage (Secrets Manager / KMS-encrypted column) →
 scheduled Lambda refreshes the token before expiry.
 
-## 5. AWS architecture
+## 5. Mobile application structure
+
+Single Expo/React Native codebase for iOS + Android. Because identity is global (§3), the same install of
+the app serves a user acting as landlord, collaborator, and/or tenant — the navigation structure and screen
+set are role-driven at runtime, not separate apps.
+
+### 5.1 Navigation structure
+
+```
+RootNavigator
+├── AuthStack (unauthenticated)
+│   ├── SignIn / SignUp
+│   └── InviteAcceptance (deep link from an email/SMS invite → binds to an
+│       existing account_membership or tenancy_membership)
+│
+└── AppStack (authenticated — Cognito session present)
+    ├── ContextSwitcher (top-level, always reachable)
+    │   shows every account_membership + tenancy_membership the user has;
+    │   picking one scopes everything below to that context
+    │
+    ├── OwnerTabs (visible when the active context is an account_membership)
+    │   ├── Portfolio (properties → units, add/edit, utility toggles + tariff config)
+    │   ├── Collaborators (invite, assign property/unit scope)
+    │   ├── Tenancies (create tenancy, invite tenant, contract type)
+    │   ├── Invoices (list, status, ANAF submission state, mark-paid action)
+    │   └── Settings (fiscal data, invoice series/VAT, ANAF connect, Netopia config)
+    │
+    └── TenantTabs (visible when the active context is a tenancy_membership)
+        ├── MyTenancies (units rented, possibly across different landlords)
+        ├── ReadingWizard (per §4.5 — step-by-step camera capture, sequence_order-driven)
+        ├── MyInvoices (view, pay online via Netopia hosted checkout, view receipt)
+        └── Notifications (reminders, invoice issued, payment confirmations)
+```
+
+A user with both an `account_membership` and a `tenancy_membership` sees both `OwnerTabs` and `TenantTabs`
+as separate contexts in the switcher — never merged into one screen, to keep the mental model (and the
+authorization scope of every screen) unambiguous.
+
+### 5.2 State management & data layer
+
+- **Server state**: TanStack Query (React Query) for all API data — caching, retries, background refetch;
+  matches the Lambda/REST backend directly, no bespoke client-side store duplicating server state.
+- **Local/UI state**: React Context + `zustand` for cross-screen UI state that isn't server data (active
+  context/account selection, in-progress wizard step).
+- **Auth/session**: Cognito tokens (access/refresh) in `expo-secure-store` (Keychain/Keystore-backed, never
+  AsyncStorage) — refreshed transparently by the API client on 401.
+- **Offline reading capture (per decision below)**: a local SQLite queue (`expo-sqlite`) — see §5.3.
+
+### 5.3 Offline-first meter reading capture
+
+Meter cupboards/basements often have poor or no signal, so the reading wizard **must not depend on a live
+connection at capture time**:
+
+1. Photo is taken and immediately written to local device storage + a row in a local SQLite `upload_queue`
+   table (`unit_utility_id`, `period`, `local_file_uri`, `status: PENDING_UPLOAD`).
+2. The wizard advances to the next meter in `sequence_order` immediately — it never blocks on network I/O.
+3. A background sync task (foreground task on app resume + `expo-background-fetch` opportunistically)
+   drains the queue: requests a presigned S3 URL per pending item, uploads, then marks the row `UPLOADED`
+   and triggers the existing upload-event → Bedrock flow (§4.5) server-side.
+4. AI-extracted values/confidence are pulled back into the app (poll or push) once processed, so the tenant
+   can confirm/correct — this confirmation step can itself happen later/offline-first too, with the
+   confirmed value queued the same way if still offline.
+5. Failure handling: exponential backoff per queue item; the queue survives app restarts/kills (SQLite, not
+   in-memory); a visible "N readings pending upload" indicator avoids silent data loss.
+
+### 5.4 Push notifications & deep linking
+
+Expo push token registered post-login, stored server-side against the `user_id` (fan-out target is whichever
+context — account or tenancy — the notification concerns). Notifications deep-link directly into the
+relevant screen (e.g. a reading reminder opens `ReadingWizard` pre-scoped to that tenancy/period).
+
+### 5.5 Testing & release
+
+- **E2E**: Maestro (camera/upload flows are the highest-risk regression surface — Maestro's device-farm
+  friendly, YAML-based flows fit this better than Detox for a small team).
+- **EAS Build profiles** mirror the backend environments (§7): `development` (dev API, sandbox ANAF/Netopia,
+  dev client), `preview` (internal QA builds against `prod`-like staging if/when added), `production` (store
+  builds, live API). **EAS Update** channels map 1:1 to these profiles for OTA JS/asset updates without an
+  app-store review cycle.
+
+## 6. AWS architecture
 
 ```mermaid
 flowchart TB
@@ -230,7 +310,7 @@ flowchart TB
 AWS services used: Cognito, API Gateway, Lambda, Aurora Serverless v2, RDS Proxy, S3, Bedrock,
 Step Functions, EventBridge Scheduler, SES, Secrets Manager, KMS, CloudWatch, X-Ray, WAF.
 
-## 6. Terraform — modular structure & environment strategy
+## 7. Terraform — modular structure & environment strategy
 
 **Single AWS account** (eu-west-1) hosts every environment. DEV/PROD isolation is **logical, not
 account-level**:
@@ -273,7 +353,7 @@ Each module exposes the minimum outputs the others need (e.g. `database` exposes
 Secrets Manager ARN, never in plain text). Remote state in S3 + DynamoDB lock table (single account,
 eu-west-1), one state path per environment.
 
-## 7. Security & compliance
+## 8. Security & compliance
 
 - **Personal data**: CNP, address — column-level encryption (KMS) in Aurora, restricted access.
 - **GDPR**: data resident in eu-west-1; right-to-erasure process on request; limited retention for meter
@@ -284,18 +364,19 @@ eu-west-1), one state path per environment.
 - **IAM**: least privilege per Lambda (each function has its own role, no wildcards).
 - **API**: AWS WAF on API Gateway, rate limiting, Cognito JWT authorizer on all private routes.
 
-## 8. Phased roadmap
+## 9. Phased roadmap
 
 ### Phase 0 — MVP
 - Cognito auth, complete data model (accounts/memberships/scopes/properties/units/tenancies).
 - Base Terraform: network, database, auth, api, storage — provisioned for **both `dev` and `prod`** (single
-  AWS account, logically isolated per §6) from day one, not retrofitted later.
+  AWS account, logically isolated per §7) from day one, not retrofitted later.
 - Mobile: onboarding, property/unit CRUD, inviting collaborators/tenants, account switcher.
 - **Manual** meter reading (numeric input, no photo/AI yet).
 - Basic invoicing: computation + PDF, **no** live ANAF submission (manual payment marking for all contract types).
 
 ### Phase 1 — AI & notifications
-- Photo upload to S3 + step-by-step wizard (`sequence_order`) + automatic reading via Bedrock + user confirmation.
+- Photo upload to S3 + step-by-step wizard (`sequence_order`) + automatic reading via Bedrock + user confirmation,
+  with the offline-first capture queue from day one (§5.3) — not a later hardening pass.
 - EventBridge monthly reminders, push notifications (Expo) + email (SES).
 - Step Functions for the monthly billing cycle.
 
@@ -308,7 +389,7 @@ eu-west-1), one state path per environment.
 - Reporting/analytics dashboard for landlords.
 - (Optional, on demand) SMS channel, custom granular per-action roles.
 
-## 9. Confirmed decisions (previously open assumptions)
+## 10. Confirmed decisions (previously open assumptions)
 
 - **Language/currency**: UI in Romanian; invoices in RON. Rent is commonly negotiated in EUR (standard
   Romanian market practice) even though it's invoiced in RON — see the `rent_currency` field and the BNR
