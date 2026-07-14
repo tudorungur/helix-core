@@ -28,11 +28,12 @@ Across all four types, the common thread is a single computed source of truth fo
 manual math re-derived by each party; **B2B/B2C/C2B** additionally get compliance automation (e-Factura,
 withholding), while for **C2C** the entire case rests on removing friction and disputes, not compliance.
 
-**Known gap, not yet modeled**: security deposit (`garanție`) tracking — amount held, deductions at move-out,
-proof (handover protocol/`proces-verbal`, photos, itemized deductions) — is a documented source of disputes
-across *all four* contract types, not just C2C, but there's no `deposit`/`move_out_inventory` entity yet.
-Worth a dedicated pass later (candidate for a future phase, alongside maintenance ticketing) rather than
-folding in here.
+**Security deposit (`garanție`)**: a documented source of disputes across *all four* contract types (not just
+C2C) — proving what condition the unit was in, and justifying any amount withheld at move-out, otherwise
+rests on a claim from either side rather than evidence. Modeled in Section 3.1/Section 4.11 (Phase 3): the
+deposit itself is never invoiced or taxed at collection (it's a liability held on the tenant's behalf, not
+rental income — see Section 11), but a portion withheld to cover unpaid rent is reclassified as rent and
+flows through the normal invoicing/withholding pipeline (Section 4.6/Section 4.10) once withheld.
 
 ## 2. Architecture decisions (summary)
 
@@ -43,7 +44,7 @@ folding in here.
 | Database                   | Amazon Aurora PostgreSQL Serverless v2 (+ RDS Proxy)                      |
 | Authentication             | AWS Cognito (global identity) — roles/scope live in Postgres, not Cognito |
 | AI meter reading            | Amazon Bedrock (vision model), invoked from Lambda                       |
-| Online payments            | Netopia Payments (hosted checkout, no card data stored)                  |
+| Online payments            | Netopia Payments (hosted checkout, no card data stored) — Apple Pay/Google Pay surface as wallet options within the same hosted checkout, no separate native integration |
 | ANAF e-Factura              | Each Account connects its own SPV via OAuth (not a centralized certificate) |
 | AWS region                  | eu-west-1 (Ireland)                                                       |
 | Notifications               | Push (Expo) + Email (SES)                                                 |
@@ -119,6 +120,15 @@ users (Cognito sub) ──┬── account_memberships ──> accounts ──>
   `photo_s3_key NULL`, `created_at`, `resolved_at NULL`, `closed_at NULL`.
 - **maintenance_ticket_comments** — a simple threaded exchange on a ticket between tenant and landlord.
   `id`, `ticket_id`, `author_user_id`, `message`, `created_at`.
+- **deposits** — the security deposit (`garanție`) held on a `tenancy` (Phase 3, Section 4.11). `id`,
+  `tenancy_id`, `amount`, `currency [EUR|RON]`, `status [HELD|RETAINED_RENT|RETAINED_DAMAGE|RETURNED]`,
+  `payment_method [MANUAL|NETOPIA_CARD]`, `netopia_transaction_id NULL`, `paid_at`, `returned_at NULL`,
+  `retained_amount NULL`, `retention_justification_s3_key NULL` (the handover protocol/`proces-verbal` or
+  repair invoice/`deviz` backing a withheld amount). Never invoiced or taxed at collection (Section 11) — it's
+  a liability held on the tenant's behalf, not rental income, until (and unless) retained.
+- **deposit_condition_photos** — timestamped move-in/move-out photo evidence for a `deposit`, the basis for
+  justifying (or disputing) a withheld amount. `id`, `deposit_id`, `phase [MOVE_IN|MOVE_OUT]`, `photo_s3_key`,
+  `uploaded_by_user_id`, `uploaded_at`.
 
 ### 3.2 Permission resolution (on every request)
 
@@ -129,9 +139,9 @@ users (Cognito sub) ──┬── account_memberships ──> accounts ──>
    - Account/property/unit routes: `role=OWNER` on the account → access granted; `role=COLLABORATOR` →
      access only if the requested `property_id`/`unit_id` appears in one of their
      `account_membership_scopes`.
-   - Tenancy/reading/my-invoice/ticket routes: access granted if an active `tenancy_membership` exists for
-     that `tenancy_id`; on the owner side, the same rule as account/property/unit routes applies, using the
-     ticket's denormalized `unit_id`.
+   - Tenancy/reading/my-invoice/ticket/deposit routes: access granted if an active `tenancy_membership`
+     exists for that `tenancy_id`; on the owner side, the same rule as account/property/unit routes applies
+     (via the tenancy's `unit_id`, denormalized on tickets the same way).
 4. A user can have 0..N `account_memberships` + 0..N `tenancy_memberships` at the same time → the mobile app
    has an **account/context switcher** in the UI.
 
@@ -230,6 +240,27 @@ The app computes the withholding line for the landlord's/tenant's visibility onl
 tenant-company's obligation) and, for the landlord, any Declarația Unică (D212) + CASS obligations on other
 income are out of scope, consistent with the fiscal accounting/reporting scope decision in Section 11.
 
+### 4.11 Security deposit lifecycle (Phase 3)
+1. At tenancy start, the owner sets the `deposit.amount` (typically 1–2 months' rent, freely negotiated — no
+   statutory cap) → the tenant pays it via the same Netopia hosted checkout used for invoices (Section 4.7),
+   which already surfaces Apple Pay/Google Pay as wallet options with no separate native integration, or the
+   owner marks it paid manually (cash) → `deposit.status = HELD`. **No invoice or e-Factura line is
+   generated** — the deposit is a liability, not rental income (Section 3.1).
+2. Move-in: both parties (or just the owner) upload dated condition photos (`deposit_condition_photos`,
+   `phase = MOVE_IN`) — same presigned-S3 upload pattern as meter photos (Section 4.5).
+3. At tenancy end, the same flow runs for `phase = MOVE_OUT` — move-in and move-out photos sit side by side
+   as the evidentiary basis for any retention decision.
+4. Owner decides: **return** (`status = RETURNED`, `returned_at` set, full amount paid back — no document
+   needed beyond the payment proof) or **retain** (partial or full):
+   - `RETAINED_DAMAGE`: `retained_amount` set, backed by an uploaded `retention_justification_s3_key`
+     (repair invoice/`deviz` or handover protocol) — treated as damage compensation, not rental income
+     (Section 11) — no further invoicing/withholding action needed.
+   - `RETAINED_RENT`: `retained_amount` set, justification documents the unpaid period — that amount is
+     **not** left inside `deposits`; it's pushed into the normal billing pipeline as an additional invoice
+     line (Section 4.6) or, for `C2B_WITHHOLDING` tenancies, run through the withholding calculation
+     (Section 4.10), since it now functions as rent actually received.
+5. Any undisputed remainder (deposit minus retained amount) is returned the same way as a full return.
+
 ## 5. Mobile application structure
 
 Single Expo/React Native codebase for iOS + Android. Because identity is global (Section 3), the same install of
@@ -253,13 +284,15 @@ RootNavigator
     ├── OwnerTabs (visible when the active context is an account_membership)
     │   ├── Portfolio (properties → units, add/edit, utility toggles + tariff config)
     │   ├── Collaborators (invite, assign property/unit scope)
-    │   ├── Tenancies (create tenancy, invite tenant, contract type)
+    │   ├── Tenancies (create tenancy, invite tenant, contract type; per-tenancy deposit collection,
+    │   │   move-in/move-out photos, retain/return decision — Section 4.11, Phase 3)
     │   ├── Invoices (list, status, ANAF submission state, mark-paid action)
     │   ├── Maintenance (ticket list per unit, status updates, comment thread — Section 4.9, Phase 3)
     │   └── Settings (fiscal data, invoice series/VAT, ANAF connect, Netopia config)
     │
     └── TenantTabs (visible when the active context is a tenancy_membership)
-        ├── MyTenancies (units rented, possibly across different landlords)
+        ├── MyTenancies (units rented, possibly across different landlords; per-tenancy deposit status,
+        │   move-in/move-out photo upload — Section 4.11, Phase 3)
         ├── ReadingWizard (per Section 4.5 — step-by-step camera capture, sequence_order-driven)
         ├── MyInvoices (view, pay online via Netopia hosted checkout, view receipt)
         ├── Maintenance (report an issue, view ticket status/comments — Section 4.9, Phase 3)
@@ -497,10 +530,14 @@ eu-west-1), one state path per environment.
 - Formalized "expense statement" flow for C2C (no ANAF submission).
 
 ### Phase 3 — Online payments & extras
-- Netopia integration (checkout + webhook reconciliation).
+- Netopia integration (checkout + webhook reconciliation), Apple Pay/Google Pay as wallet options within the
+  same hosted checkout.
 - Maintenance ticketing: tenant reports a defect (optional photo, offline-first per Section 5.3) per
   tenancy; landlord tracks OPEN → IN_PROGRESS → RESOLVED → CLOSED; push/email notifications on creation and
   status changes; simple threaded comments for back-and-forth (Section 4.9).
+- Security deposit lifecycle: collection (Netopia or manual), move-in/move-out photo evidence, retain/return
+  decision with justification, automatic hand-off into invoicing/withholding when retained for unpaid rent
+  (Section 4.11).
 - Reporting/analytics dashboard for landlords.
 - (Optional, on demand) SMS channel, custom granular per-action roles.
 
@@ -524,5 +561,10 @@ eu-west-1), one state path per environment.
   computes the withholding tax line (Section 4.10) and tracks the `anaf_c168_registered` flag (Section 3.1,
   Section 4.4) for visibility only — it does not file Form C168, the tenant-company's D100/D205, or the
   landlord's own Declarația Unică (D212)/CASS obligations.
+- **Security deposit fiscal treatment**: the deposit is never invoiced or taxed at collection — it's a
+  liability held on the tenant's behalf (recorded, for bookkeeping-obligated landlords, as a sundry-creditor
+  liability, not revenue), not payment for use of the property. It only becomes taxable rental income if/when
+  retained to cover unpaid rent, at which point it's pushed through the normal invoicing/withholding pipeline
+  (Section 4.11); retained for documented damage, it's treated as compensation, not rental income.
 - **No public listing/search**: confirmed not a marketplace — the only way a tenant enters the app is via an
   explicit invitation from an existing landlord account onto a specific tenancy.
