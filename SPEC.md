@@ -475,8 +475,9 @@ account-level**:
   cluster/database, own S3 buckets, own API Gateway stage + Lambda aliases, own Step Functions state machines,
   own VPC.
 - Terraform: one `environments/<env>/` folder per environment, each with its own `.tfvars` and its own remote
-  state path (separate S3 state key + DynamoDB lock entry) — same backend account/bucket, different state
-  path per environment, so an `apply` in dev can never touch prod state.
+  state path (separate S3 state key, S3-native lockfile locking — Terraform ≥ 1.10, no DynamoDB) — same
+  backend account/bucket, different state path per environment, so an `apply` in dev can never touch prod
+  state.
 - IAM: policies/conditions scoped by naming convention/tags (`Environment = dev|prod`) so that, even within
   the same account, a dev-scoped Lambda role cannot read/write prod-tagged resources (enforced via S3 bucket
   policies, KMS key policies, Secrets Manager resource policies).
@@ -488,10 +489,9 @@ account-level**:
 
 ```
 infra/
-  bootstrap/         # one-time, manually-applied, local-state config: creates the S3 state bucket +
-                     # DynamoDB lock table every environment's backend points at (chicken-and-egg — it
-                     # can't use the backend it creates). Run once per AWS account before any
-                     # environment can `terraform init`.
+  bootstrap/         # one-time, manually-applied, local-state config: creates the S3 state bucket every
+                     # environment's backend points at (chicken-and-egg — it can't use the backend it
+                     # creates). Run once per AWS account before any environment can `terraform init`.
   modules/
     network/        # VPC, private subnets (Aurora + Lambda ENI), NAT — one VPC per environment, same account
     database/       # Aurora Serverless v2, RDS Proxy, Secrets Manager (DB creds)

@@ -8,8 +8,3 @@ variable "bucket_name_prefix" {
   type        = string
   default     = "helix-core-tfstate"
 }
-
-variable "lock_table_name" {
-  type    = string
-  default = "helix-core-terraform-locks"
-}
