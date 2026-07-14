@@ -234,7 +234,7 @@ relevant screen (e.g. a reading reminder opens `ReadingWizard` pre-scoped to tha
 
 - **E2E**: Maestro (camera/upload flows are the highest-risk regression surface — Maestro's device-farm
   friendly, YAML-based flows fit this better than Detox for a small team).
-- **EAS Build profiles** mirror the backend environments (§7): `development` (dev API, sandbox ANAF/Netopia,
+- **EAS Build profiles** mirror the backend environments (§8): `development` (dev API, sandbox ANAF/Netopia,
   dev client), `preview` (internal QA builds against `prod`-like staging if/when added), `production` (store
   builds, live API). **EAS Update** channels map 1:1 to these profiles for OTA JS/asset updates without an
   app-store review cycle.
@@ -310,7 +310,43 @@ flowchart TB
 AWS services used: Cognito, API Gateway, Lambda, Aurora Serverless v2, RDS Proxy, S3, Bedrock,
 Step Functions, EventBridge Scheduler, SES, Secrets Manager, KMS, CloudWatch, X-Ray, WAF.
 
-## 7. Terraform — modular structure & environment strategy
+## 7. Repository structure & tooling
+
+Monorepo containing the mobile app, backend services, shared domain code, and infrastructure:
+
+```
+helix-core/
+├── apps/
+│   └── mobile/              # Expo/React Native app (§5)
+├── services/
+│   └── <name>/              # one Lambda per bounded context (§6): accounts, properties, tenancies,
+│                            # readings, invoices, payments, anaf-integration, bnr-rates
+├── packages/
+│   └── domain/              # shared TS types, Zod schemas, Drizzle schema, tariff/FX calculation logic —
+│                            # imported by services/invoices and apps/mobile (e.g. bill preview)
+├── infra/                   # Terraform (§8) — separate tool chain, sibling directory only, not part of
+│                            # the JS/TS workspace graph
+└── SPEC.md
+```
+
+### 7.1 Package manager & task orchestration
+- **pnpm workspaces**: internal packages reference each other via `workspace:*` (e.g. `services/invoices`
+  depends on `packages/domain`), resolved as local symlinks — no publishing to a registry needed.
+- **Turborepo** orchestrates build/test/lint across packages: derives the dependency graph from `workspace:*`
+  references, runs tasks in the correct order, and caches per-package outputs (only what changed, and its
+  dependents, is rebuilt/retested).
+- **Expo/Metro**: pnpm's symlinked `node_modules` requires `apps/mobile/metro.config.js` to set
+  `watchFolders` + `resolver.nodeModulesPaths` so Metro resolves workspace-linked packages (a documented
+  pattern, not experimental).
+
+### 7.2 Database access layer
+- **Drizzle ORM** for Aurora Postgres access from Lambda: schema (tables, enums, relations — §3.1) defined
+  once in `packages/domain`, consumed as typed queries by every service that needs DB access.
+- Chosen over Prisma for lower cold-start overhead (no separate query-engine binary to load per invocation)
+  and over raw SQL + hand-rolled migrations for compile-time type safety, while keeping generated queries
+  close to plain SQL.
+
+## 8. Terraform — modular structure & environment strategy
 
 **Single AWS account** (eu-west-1) hosts every environment. DEV/PROD isolation is **logical, not
 account-level**:
@@ -353,7 +389,7 @@ Each module exposes the minimum outputs the others need (e.g. `database` exposes
 Secrets Manager ARN, never in plain text). Remote state in S3 + DynamoDB lock table (single account,
 eu-west-1), one state path per environment.
 
-## 8. Security & compliance
+## 9. Security & compliance
 
 - **Personal data**: CNP, address — column-level encryption (KMS) in Aurora, restricted access.
 - **GDPR**: data resident in eu-west-1; right-to-erasure process on request; limited retention for meter
@@ -364,12 +400,12 @@ eu-west-1), one state path per environment.
 - **IAM**: least privilege per Lambda (each function has its own role, no wildcards).
 - **API**: AWS WAF on API Gateway, rate limiting, Cognito JWT authorizer on all private routes.
 
-## 9. Phased roadmap
+## 10. Phased roadmap
 
 ### Phase 0 — MVP
 - Cognito auth, complete data model (accounts/memberships/scopes/properties/units/tenancies).
 - Base Terraform: network, database, auth, api, storage — provisioned for **both `dev` and `prod`** (single
-  AWS account, logically isolated per §7) from day one, not retrofitted later.
+  AWS account, logically isolated per §8) from day one, not retrofitted later.
 - Mobile: onboarding, property/unit CRUD, inviting collaborators/tenants, account switcher.
 - **Manual** meter reading (numeric input, no photo/AI yet).
 - Basic invoicing: computation + PDF, **no** live ANAF submission (manual payment marking for all contract types).
@@ -389,7 +425,7 @@ eu-west-1), one state path per environment.
 - Reporting/analytics dashboard for landlords.
 - (Optional, on demand) SMS channel, custom granular per-action roles.
 
-## 10. Confirmed decisions (previously open assumptions)
+## 11. Confirmed decisions (previously open assumptions)
 
 - **Language/currency**: UI in Romanian; invoices in RON. Rent is commonly negotiated in EUR (standard
   Romanian market practice) even though it's invoiced in RON — see the `rent_currency` field and the BNR
