@@ -84,6 +84,12 @@ users (Cognito sub) ──┬── account_memberships ──> accounts ──>
   conversion actually applied).
 - **payments** — `invoice_id`, `amount`, `method [MANUAL|NETOPIA_CARD]`, `marked_by_user_id NULL`,
   `netopia_transaction_id NULL`, `paid_at`, `status`.
+- **maintenance_tickets** — a defect/repair report raised by a tenant on their unit (Phase 3, Section 4.9).
+  `id`, `tenancy_id`, `unit_id` (denormalized, as with `meter_readings`, for direct scope checks — see Section 3.2),
+  `reported_by_user_id`, `title`, `description`, `status [OPEN|IN_PROGRESS|RESOLVED|CLOSED]`,
+  `photo_s3_key NULL`, `created_at`, `resolved_at NULL`, `closed_at NULL`.
+- **maintenance_ticket_comments** — a simple threaded exchange on a ticket between tenant and landlord.
+  `id`, `ticket_id`, `author_user_id`, `message`, `created_at`.
 
 ### 3.2 Permission resolution (on every request)
 
@@ -94,8 +100,9 @@ users (Cognito sub) ──┬── account_memberships ──> accounts ──>
    - Account/property/unit routes: `role=OWNER` on the account → access granted; `role=COLLABORATOR` →
      access only if the requested `property_id`/`unit_id` appears in one of their
      `account_membership_scopes`.
-   - Tenancy/reading/my-invoice routes: access granted if an active `tenancy_membership` exists for that
-     `tenancy_id`.
+   - Tenancy/reading/my-invoice/ticket routes: access granted if an active `tenancy_membership` exists for
+     that `tenancy_id`; on the owner side, the same rule as account/property/unit routes applies, using the
+     ticket's denormalized `unit_id`.
 4. A user can have 0..N `account_memberships` + 0..N `tenancy_memberships` at the same time → the mobile app
    has an **account/context switcher** in the UI.
 
@@ -159,6 +166,19 @@ Settings → "Connect ANAF" → redirect to the SPV authorize endpoint → callb
 for an `access_token`/`refresh_token` → encrypted storage (Secrets Manager / KMS-encrypted column) →
 scheduled Lambda refreshes the token before expiry.
 
+### 4.9 Maintenance ticket lifecycle (Phase 3)
+1. Tenant opens "Report an issue" on a `tenancy` → title + description + optional photo (same presigned-S3
+   upload pattern as meter photos, Section 4.5, including offline-first capture per Section 5.3) →
+   `maintenance_ticket.status = OPEN`.
+2. Owner (or a collaborator scoped to that property/unit, Section 3.2) is notified push+email (Section 5.4) of
+   the new ticket.
+3. Owner sets `status = IN_PROGRESS` once work starts, optionally adding a `maintenance_ticket_comment`
+   (e.g. "plumber scheduled Tuesday") → tenant is notified of the status change.
+4. Owner sets `status = RESOLVED` once the repair is done → tenant is notified; the tenant can either confirm
+   (no action needed) or reopen (`status → OPEN`) via a comment if the issue persists.
+5. Owner sets `status = CLOSED` after resolution is confirmed. The full `maintenance_ticket_comments` thread
+   stays attached to the ticket as a record of the exchange.
+
 ## 5. Mobile application structure
 
 Single Expo/React Native codebase for iOS + Android. Because identity is global (Section 3), the same install of
@@ -184,12 +204,14 @@ RootNavigator
     │   ├── Collaborators (invite, assign property/unit scope)
     │   ├── Tenancies (create tenancy, invite tenant, contract type)
     │   ├── Invoices (list, status, ANAF submission state, mark-paid action)
+    │   ├── Maintenance (ticket list per unit, status updates, comment thread — Section 4.9, Phase 3)
     │   └── Settings (fiscal data, invoice series/VAT, ANAF connect, Netopia config)
     │
     └── TenantTabs (visible when the active context is a tenancy_membership)
         ├── MyTenancies (units rented, possibly across different landlords)
         ├── ReadingWizard (per Section 4.5 — step-by-step camera capture, sequence_order-driven)
         ├── MyInvoices (view, pay online via Netopia hosted checkout, view receipt)
+        ├── Maintenance (report an issue, view ticket status/comments — Section 4.9, Phase 3)
         └── Notifications (reminders, invoice issued, payment confirmations)
 ```
 
@@ -422,6 +444,9 @@ eu-west-1), one state path per environment.
 
 ### Phase 3 — Online payments & extras
 - Netopia integration (checkout + webhook reconciliation).
+- Maintenance ticketing: tenant reports a defect (optional photo, offline-first per Section 5.3) per
+  tenancy; landlord tracks OPEN → IN_PROGRESS → RESOLVED → CLOSED; push/email notifications on creation and
+  status changes; simple threaded comments for back-and-forth (Section 4.9).
 - Reporting/analytics dashboard for landlords.
 - (Optional, on demand) SMS channel, custom granular per-action roles.
 
