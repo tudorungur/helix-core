@@ -6,13 +6,14 @@ An application for managing the landlord–tenant relationship (NOT a listing/bo
 creates a profile, adds their portfolio of properties/units and, once the rental relationship already exists
 "in fact", invites the tenant into the app to submit monthly meter readings and receive invoices/statements.
 
-Covers three types of contractual relationship on the same platform:
+Covers four types of contractual relationship on the same platform:
 
 | Type | Description                                             | Invoicing                                  |
 |------|------------------------------------------------------------|---------------------------------------------|
 | B2B  | Landlord as a legal entity (SRL) ↔ tenant as a company      | Automatic, ANAF e-Factura (SPV OAuth)        |
 | B2C  | Landlord as a legal entity/sole trader (PFA) ↔ tenant as an individual | Automatic, ANAF e-Factura (SPV OAuth)      |
-| C2C  | Individual ↔ individual, contract not registered with ANAF | Manual — "expense statement" + manual payment marking by the landlord |
+| C2B  | Landlord as an individual ↔ tenant as a company             | Manual — "expense statement" showing the 8% withholding tax the tenant-company must retain (Section 4.10); ANAF contract registration (Form C168) is mandatory, not optional |
+| C2C  | Individual ↔ individual, contract not registered with ANAF (registration optional) | Manual — "expense statement" + manual payment marking by the landlord |
 
 ## 2. Architecture decisions (summary)
 
@@ -62,9 +63,15 @@ users (Cognito sub) ──┬── account_memberships ──> accounts ──>
   `unit_price` (for METER_INDEX), `fixed_amount` (for FIXED_COST), `quota_percentage` (for QUOTA_SHARE),
   `sequence_order int` — the order used in the photo-capture wizard.
 - **tenancies** — the rental contract on a unit.
-  `id`, `unit_id`, `start_date`, `end_date`, `contract_type [REGISTERED_ANAF|UNREGISTERED_C2C]`, `status`,
-  `rent_amount`, `rent_currency [EUR|RON]` (base rent as negotiated — in Romania typically EUR-indexed even
-  when invoiced in RON; kept flexible for contracts already denominated in RON).
+  `id`, `unit_id`, `start_date`, `end_date`, `contract_type [REGISTERED_ANAF|C2B_WITHHOLDING|UNREGISTERED_C2C]`,
+  `status`, `rent_amount`, `rent_currency [EUR|RON]` (base rent as negotiated — in Romania typically
+  EUR-indexed even when invoiced in RON; kept flexible for contracts already denominated in RON),
+  `anaf_c168_registered bool` (default `false`), `anaf_c168_registration_date NULL` — tracks whether the
+  civil rental contract has been registered with ANAF (Form C168), independent of `contract_type`:
+  **mandatory** for `C2B_WITHHOLDING` (owner is an individual, tenant is a company), **optional** for
+  `UNREGISTERED_C2C`. Not applicable to `REGISTERED_ANAF` (B2B/B2C), where the owner already operates under
+  a different fiscal regime (SRL/PFA) and e-Factura, not C168, is the relevant mechanism. The app only
+  tracks that registration happened (a confirmation checkbox + date) — it does not submit Form C168 itself.
 - **bnr_exchange_rates** — daily FX reference rates cached from BNR's public feed.
   `id`, `rate_date`, `currency (e.g. EUR)`, `rate_to_ron`. Populated by a scheduled job (see Section 4.6, Section 6); never
   fetched synchronously during invoice generation so the rate used is always reproducible/auditable.
@@ -81,7 +88,10 @@ users (Cognito sub) ──┬── account_memberships ──> accounts ──>
 - **invoice_lines** — `invoice_id`, `unit_utility_id NULL` (null for the rent line), `description`,
   `quantity`, `unit_price`, `amount`, plus — **only for the rent line** — `source_amount`,
   `source_currency`, `fx_rate_used`, `fx_rate_date` (kept for legal/audit traceability of the EUR→RON
-  conversion actually applied).
+  conversion actually applied), and — **only for the rent line on a `C2B_WITHHOLDING` tenancy** —
+  `withholding_tax_rate` (fixed at the statutory 8% of gross rent — 10% applied to the 80% net taxable
+  base), `withholding_tax_amount` (`amount × withholding_tax_rate`), `net_amount_due`
+  (`amount - withholding_tax_amount`, the sum the tenant-company actually pays the landlord).
 - **payments** — `invoice_id`, `amount`, `method [MANUAL|NETOPIA_CARD]`, `marked_by_user_id NULL`,
   `netopia_transaction_id NULL`, `paid_at`, `status`.
 - **maintenance_tickets** — a defect/repair report raised by a tenant on their unit (Phase 3, Section 4.9).
@@ -125,6 +135,11 @@ unit price/fixed amount/percentage + **order in the photo-capture sequence**.
 Owner creates a `tenancy` on a `unit` → invites a tenant (email/phone) → if the user doesn't exist, Cognito
 creates a new account; if they already exist (e.g. a tenant with other units from other landlords), only a
 new `tenancy_membership` is created on their existing identity.
+
+If `contract_type = C2B_WITHHOLDING`, the owner is shown a reminder that registering the contract with ANAF
+(Form C168, within 30 days of signing) is a legal requirement, not optional — the owner self-confirms once
+done (`anaf_c168_registered = true`, `anaf_c168_registration_date`). For `UNREGISTERED_C2C`, the same
+reminder is shown but framed as optional. The app never submits Form C168 itself (see Section 3.1).
 
 ### 4.5 Monthly meter reading (mobile wizard)
 1. EventBridge Scheduler triggers a reminder (push + email) on a configurable day of the month.
@@ -178,6 +193,23 @@ scheduled Lambda refreshes the token before expiry.
    (no action needed) or reopen (`status → OPEN`) via a comment if the issue persists.
 5. Owner sets `status = CLOSED` after resolution is confirmed. The full `maintenance_ticket_comments` thread
    stays attached to the ticket as a record of the exchange.
+
+### 4.10 C2B rent statement & withholding tax (Phase 0)
+For a `C2B_WITHHOLDING` tenancy (individual landlord, company tenant), at the end of the billing cycle:
+1. Same rent + utility line computation as Section 4.6 (including EUR→RON conversion if `rent_currency = EUR`).
+2. On the rent line, the app additionally computes `withholding_tax_amount = amount × 8%` (the statutory
+   rate — 10% applied to the 80% net taxable base after the flat-rate deduction) and
+   `net_amount_due = amount − withholding_tax_amount`.
+3. Generates an "expense statement" PDF (same as `UNREGISTERED_C2C`, **no** e-Factura/ANAF submission — the
+   landlord isn't a taxable person with a CUI) that clearly itemizes gross rent, the withholding tax amount,
+   and the net amount due, so the tenant-company has what it needs for its own D100 (monthly, code 628)
+   and D205 (annual) filings.
+4. `status = ISSUED`, awaiting manual payment marking by the landlord (Section 4.7) — same as C2C, since the
+   tenant here is a company without a Netopia consumer checkout flow.
+
+The app computes the withholding line for the landlord's/tenant's visibility only. Filing D100/D205 (the
+tenant-company's obligation) and, for the landlord, any Declarația Unică (D212) + CASS obligations on other
+income are out of scope, consistent with the fiscal accounting/reporting scope decision in Section 11.
 
 ## 5. Mobile application structure
 
@@ -431,6 +463,9 @@ eu-west-1), one state path per environment.
 - Mobile: onboarding, property/unit CRUD, inviting collaborators/tenants, account switcher.
 - **Manual** meter reading (numeric input, no photo/AI yet).
 - Basic invoicing: computation + PDF, **no** live ANAF submission (manual payment marking for all contract types).
+- `C2B_WITHHOLDING` contract type: 8% withholding tax line on the rent statement (Section 4.10), plus the
+  `anaf_c168_registered` tracking flag/reminder shared with `UNREGISTERED_C2C` (Section 4.4) — no live ANAF
+  integration needed for either, so both fit the MVP alongside the other contract types.
 
 ### Phase 1 — AI & notifications
 - Photo upload to S3 + step-by-step wizard (`sequence_order`) + automatic reading via Bedrock + user confirmation,
@@ -466,6 +501,9 @@ eu-west-1), one state path per environment.
   requires dedicated infra.
 - **Fiscal accounting/reporting**: out of scope. The application issues invoices (and submits them to ANAF
   where applicable) but does not produce sales ledgers, VAT returns, or accounting exports. Landlords hand
-  off to their own accountant/software.
+  off to their own accountant/software. This extends to `C2B_WITHHOLDING` and `UNREGISTERED_C2C`: the app
+  computes the withholding tax line (Section 4.10) and tracks the `anaf_c168_registered` flag (Section 3.1,
+  Section 4.4) for visibility only — it does not file Form C168, the tenant-company's D100/D205, or the
+  landlord's own Declarația Unică (D212)/CASS obligations.
 - **No public listing/search**: confirmed not a marketplace — the only way a tenant enters the app is via an
   explicit invitation from an existing landlord account onto a specific tenancy.
