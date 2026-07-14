@@ -547,10 +547,13 @@ eu-west-1), one state path per environment.
 
 ## 11. Confirmed decisions (previously open assumptions)
 
-- **Language/currency**: UI in Romanian; invoices in RON. Rent is commonly negotiated in EUR (standard
-  Romanian market practice) even though it's invoiced in RON — see the `rent_currency` field and the BNR
-  conversion rule in Section 3.1/Section 4.6. Utility charges are always computed and invoiced directly in RON (meter
-  delta × unit price), never FX-converted.
+- **Language/currency**: the app is strictly Romanian-facing — all UI text, in-app messages/reminders (e.g.
+  the deposit accounting note in Section 4.11), and push/email notifications are in Romanian, no i18n/locale
+  switching. This applies only to what the user sees: the codebase, this SPEC.md, comments, and commit
+  messages stay in English. Invoices are in RON. Rent is commonly negotiated in EUR (standard Romanian market
+  practice) even though it's invoiced in RON — see the `rent_currency` field and the BNR conversion rule in
+  Section 3.1/Section 4.6. Utility charges are always computed and invoiced directly in RON (meter delta ×
+  unit price), never FX-converted.
 - **FX rate convention**: the rent's EUR→RON conversion uses the last BNR reference rate published before
   the invoice's issuance date (falls back across weekends/bank holidays to the last available rate) — this
   is the standard Romanian fiscal reading of "previous day's rate" and is what makes the conversion audit-safe
