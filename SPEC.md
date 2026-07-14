@@ -488,6 +488,10 @@ account-level**:
 
 ```
 infra/
+  bootstrap/         # one-time, manually-applied, local-state config: creates the S3 state bucket +
+                     # DynamoDB lock table every environment's backend points at (chicken-and-egg — it
+                     # can't use the backend it creates). Run once per AWS account before any
+                     # environment can `terraform init`.
   modules/
     network/        # VPC, private subnets (Aurora + Lambda ENI), NAT — one VPC per environment, same account
     database/       # Aurora Serverless v2, RDS Proxy, Secrets Manager (DB creds)
@@ -507,7 +511,8 @@ infra/
 
 Each module exposes the minimum outputs the others need (e.g. `database` exposes the connection info via a
 Secrets Manager ARN, never in plain text). Remote state in S3 + DynamoDB lock table (single account,
-eu-west-1), one state path per environment.
+eu-west-1), one state path per environment — the bucket/table themselves are provisioned once via
+`infra/bootstrap`, then every `environments/<env>/backend.tf` points at them with a different `key`.
 
 ## 9. Security & compliance
 

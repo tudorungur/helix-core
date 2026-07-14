@@ -7,3 +7,10 @@ dist/
 !.env.example
 .expo/
 .DS_Store
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+# .terraform.lock.hcl is intentionally tracked (provider version pinning)
