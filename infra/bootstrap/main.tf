@@ -1,8 +1,11 @@
 # Creates the S3 bucket every environment's Terraform backend (Section 8) points at, using S3's native
-# lockfile locking (Terraform >= 1.10, no DynamoDB table needed). Deliberately kept outside environments/
-# and on local state: it bootstraps the very backend the other configs depend on, so it can't use that
-# backend itself (chicken-and-egg). Run once per AWS account, manually (terraform init / plan / apply
-# from this directory), before any environment can init.
+# lockfile locking (Terraform >= 1.10, no DynamoDB table needed). Deliberately kept outside environments/:
+# it bootstraps the very backend the other configs (and, after the first apply, this config too) depend
+# on. The very first `terraform init` here has no backend block yet and runs on local state — there's no
+# bucket for it to point at until after the first `apply`. Immediately after that, the backend block below
+# is added/uncommented and `terraform init -migrate-state` moves this config's own state into the bucket
+# it just created, under its own key — so a fresh clone only ever needs this repo + AWS credentials, no
+# local state file to lose.
 
 terraform {
   required_version = ">= 1.10"
@@ -11,6 +14,13 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+  }
+  backend "s3" {
+    bucket       = "helix-core-tfstate-924622219617"
+    key          = "bootstrap/terraform.tfstate"
+    region       = "eu-west-1"
+    use_lockfile = true
+    encrypt      = true
   }
 }
 
