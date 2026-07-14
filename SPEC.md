@@ -245,7 +245,12 @@ income are out of scope, consistent with the fiscal accounting/reporting scope d
    statutory cap) → the tenant pays it via the same Netopia hosted checkout used for invoices (Section 4.7),
    which already surfaces Apple Pay/Google Pay as wallet options with no separate native integration, or the
    owner marks it paid manually (cash) → `deposit.status = HELD`. **No invoice or e-Factura line is
-   generated** — the deposit is a liability, not rental income (Section 3.1).
+   generated** — the deposit is a liability, not rental income (Section 3.1). On collection, the owner is
+   shown an in-app note **and** sent a push/email notification (Section 5.4) reminding them that this amount
+   is a liability, not income — don't report it as rental revenue, and (for bookkeeping-obligated
+   landlords) it belongs under sundry creditors, not a revenue account (Section 11) — the same
+   inform-don't-file pattern as the Section 4.4 C168 reminder, just with the added notification since a
+   deposit is easy to mentally lump in with rent already received.
 2. Move-in: both parties (or just the owner) upload dated condition photos (`deposit_condition_photos`,
    `phase = MOVE_IN`) — same presigned-S3 upload pattern as meter photos (Section 4.5).
 3. At tenancy end, the same flow runs for `phase = MOVE_OUT` — move-in and move-out photos sit side by side
