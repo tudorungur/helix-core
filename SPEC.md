@@ -1,4 +1,4 @@
-# SPEC.md — Landlord/Tenant Management Platform (B2B / B2C / C2C)
+# SPEC.md — Landlord/Tenant Management Platform (B2B / B2C / C2B / C2C)
 
 ## 1. Purpose and context
 
@@ -48,7 +48,7 @@ flows through the normal invoicing/withholding pipeline (Section 4.6/Section 4.1
 | ANAF e-Factura              | Each Account connects its own SPV via OAuth (not a centralized certificate) |
 | AWS region                  | eu-west-1 (Ireland)                                                       |
 | Notifications               | Push (Expo) + Email (SES)                                                 |
-| Delivery                     | Phased: narrow MVP → Phase 1 (AI + notifications) → Phase 2 (ANAF live) → Phase 3 (online payments) |
+| Delivery                     | Phased: narrow MVP → Phase 1 (AI + notifications) → Phase 2 (ANAF live) → Phase 3 (payments & extras) |
 | Environments                | Single AWS account (eu-west-1); logical DEV/PROD isolation from v1 (separate resource sets + naming/tags, not separate accounts) — extra lower environments (e.g. staging) added the same way on demand |
 
 ## 3. Data model — Multi-tenancy and user hierarchy
@@ -212,7 +212,8 @@ scheduled Lambda refreshes the token before expiry.
 
 ### 4.9 Maintenance ticket lifecycle (Phase 3)
 1. Tenant opens "Report an issue" on a `tenancy` → title + description + optional photo (same presigned-S3
-   upload pattern as meter photos, Section 4.5, including offline-first capture per Section 5.3) →
+   upload pattern as meter photos, Section 4.5, into the `ticket-photos` bucket, including offline-first
+   capture per Section 5.3) →
    `maintenance_ticket.status = OPEN`.
 2. Owner (or a collaborator scoped to that property/unit, Section 3.2) is notified push+email (Section 5.4) of
    the new ticket.
@@ -251,7 +252,8 @@ income are out of scope, consistent with the fiscal accounting/reporting scope d
    462 'Creditori diverși' (liability), not a revenue account (704/706)."* Same inform-don't-file pattern as
    the Section 4.4 C168 reminder — the app names the correct account, it doesn't post the entry.
 2. Move-in: both parties (or just the owner) upload dated condition photos (`deposit_condition_photos`,
-   `phase = MOVE_IN`) — same presigned-S3 upload pattern as meter photos (Section 4.5).
+   `phase = MOVE_IN`) — same presigned-S3 upload pattern as meter photos (Section 4.5), into the
+   `deposit-photos` bucket.
 3. At tenancy end, the same flow runs for `phase = MOVE_OUT` — move-in and move-out photos sit side by side
    as the evidentiary basis for any retention decision.
 4. Owner decides: **return** (`status = RETURNED`, `returned_at` set, full amount paid back — no document
@@ -366,6 +368,8 @@ flowchart TB
     subgraph Storage["Object Storage (S3)"]
         S3Photos["meter-photos/"]
         S3Invoices["invoices-pdf/"]
+        S3Tickets["ticket-photos/ (Phase 3)"]
+        S3Deposits["deposit-photos/ (Phase 3)"]
     end
 
     subgraph Compute["Lambda (Node/TS) — one function per bounded context"]
@@ -402,9 +406,13 @@ flowchart TB
 
     App -->|"HTTPS + Cognito JWT"| APIGW
     App -->|"presigned URL upload"| S3Photos
+    App -->|"presigned URL upload"| S3Tickets
+    App -->|"presigned URL upload"| S3Deposits
     App -.->|"hosted checkout redirect"| Netopia
     Cog --> L
     S3Photos -->|"upload event"| L
+    S3Tickets -->|"upload event"| L
+    S3Deposits -->|"upload event"| L
     L --> Aurora
     L --> Bedrock
     L --> SM
@@ -484,7 +492,9 @@ infra/
     network/        # VPC, private subnets (Aurora + Lambda ENI), NAT — one VPC per environment, same account
     database/       # Aurora Serverless v2, RDS Proxy, Secrets Manager (DB creds)
     auth/            # Cognito User Pool + App Clients (one pool per environment)
-    storage/         # S3: meter-photos (lifecycle), invoices-pdf (env-prefixed bucket names)
+    storage/         # S3: meter-photos (lifecycle), invoices-pdf, ticket-photos, deposit-photos (Phase 3,
+                     # own lifecycle — deposit-photos retained longer, tied to move-out disputes) — all
+                     # env-prefixed bucket names
     api/             # API Gateway + Lambda functions + per-function IAM roles
     workflows/       # Step Functions state machines + EventBridge rules
     messaging/       # SES domain/identity config
@@ -502,8 +512,10 @@ eu-west-1), one state path per environment.
 ## 9. Security & compliance
 
 - **Personal data**: CNP, address — column-level encryption (KMS) in Aurora, restricted access.
-- **GDPR**: data resident in eu-west-1; right-to-erasure process on request; limited retention for meter
-  photos (S3 lifecycle → archive/delete after N months).
+- **GDPR**: data resident in eu-west-1; right-to-erasure process on request; limited retention for meter and
+  ticket photos (S3 lifecycle → archive/delete after N months); deposit-photos retained longer by default
+  (tied to potential move-out disputes, Section 4.11), with its own lifecycle policy rather than sharing the
+  shorter meter/ticket-photo retention window.
 - **ANAF OAuth tokens**: encrypted (Secrets Manager or KMS-encrypted column), scoped per `account`, auto-refreshed.
 - **Payments**: Netopia hosted checkout — the application never touches/stores card data (SAQ-A, minimal PCI
   scope).
