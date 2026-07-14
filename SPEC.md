@@ -15,6 +15,19 @@ Covers four types of contractual relationship on the same platform:
 | C2B  | Landlord as an individual ↔ tenant as a company             | Manual — "expense statement" showing the 8% withholding tax the tenant-company must retain (Section 4.10); ANAF contract registration (Form C168) is mandatory, not optional |
 | C2C  | Individual ↔ individual, contract not registered with ANAF (registration optional) | Manual — "expense statement" + manual payment marking by the landlord |
 
+### 1.1 Problem statement & value proposition (per contract type)
+
+| Type | Problem without the platform | Value the platform adds |
+|------|-------------------------------|---------------------------|
+| **B2B** | e-Factura is mandatory (UBL/CII XML, SPV submission) but bears no relation to actual metered consumption — landlords stitch together a spreadsheet for utility math, then re-key totals into separate invoicing/accounting software to generate the e-Factura by hand. | Confirmed meter readings (Section 4.5) flow straight into the invoice computation (Section 4.6) and automatic e-Factura submission (Section 4.8) — one system from "tenant reads the meter" to "ANAF has the invoice," no manual re-entry, no XML tooling to learn. |
+| **B2C** | Same e-Factura obligation as B2B, plus a less document-savvy counterparty (an individual tenant) generates more back-and-forth over disputed readings/amounts and how to pay. | Same automated e-Factura pipeline, plus tenant self-service: photo-based reading submission, in-app invoice view, online payment (Netopia) — cuts the landlord's admin overhead on both the fiscal side and the day-to-day collection side. |
+| **C2B** | A legal regime most landlords and companies don't know applies to them: mandatory Form C168 registration (30-day deadline) and an 8% withholding tax the tenant-company must calculate and file (D100/D205) — easy to miss entirely or get the math wrong (20% flat deduction, then 10%). | The withholding line (gross, tax withheld, net due) is computed automatically on every statement (Section 4.10), and the C168 registration requirement is tracked/reminded (Section 3.1, Section 4.4) instead of silently skipped — reduces both non-compliance risk and "why is this amount different from the contract" disputes. |
+| **C2C** | No fiscal obligation at all, but also no tooling: rent + multi-utility math, meter readings, and payment status are usually tracked (if at all) via texts/spreadsheets between two individuals — informal, error-prone, and a common source of friction in an otherwise personal relationship. | No fiscal automation to offer here — the value is purely operational: automatic calculation removes disputed math, photo-verified readings remove disputed consumption, payment-status tracking removes "did I pay this month," and reminders replace the awkward job of chasing the other party. If the relationship later needs registering (Section 4.4), all the history already exists — no re-entry needed to formalize. |
+
+Across all four types, the common thread is a single computed source of truth for rent + utilities instead of
+manual math re-derived by each party; **B2B/B2C/C2B** additionally get compliance automation (e-Factura,
+withholding), while for **C2C** the entire case rests on removing friction and disputes, not compliance.
+
 ## 2. Architecture decisions (summary)
 
 | Domain                    | Decision                                                                  |
