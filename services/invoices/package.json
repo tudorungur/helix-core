@@ -1,0 +1,19 @@
+{
+  "name": "@helix-core/invoices",
+  "private": true,
+  "version": "0.0.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo \"invoices: lint pending\"",
+    "test": "echo \"invoices: test pending\""
+  },
+  "dependencies": {
+    "@helix-core/domain": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

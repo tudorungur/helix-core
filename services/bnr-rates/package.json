@@ -1,0 +1,19 @@
+{
+  "name": "@helix-core/bnr-rates",
+  "private": true,
+  "version": "0.0.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo \"bnr-rates: lint pending\"",
+    "test": "echo \"bnr-rates: test pending\""
+  },
+  "dependencies": {
+    "@helix-core/domain": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

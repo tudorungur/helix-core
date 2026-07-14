@@ -1,0 +1,11 @@
+{
+  "name": "@helix-core/mobile",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "build": "echo \"mobile: Expo app not scaffolded yet (Section 7)\"",
+    "typecheck": "echo \"mobile: Expo app not scaffolded yet (Section 7)\"",
+    "lint": "echo \"mobile: Expo app not scaffolded yet (Section 7)\"",
+    "test": "echo \"mobile: Expo app not scaffolded yet (Section 7)\""
+  }
+}
