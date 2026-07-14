@@ -66,7 +66,7 @@ users (Cognito sub) ──┬── account_memberships ──> accounts ──>
   `rent_amount`, `rent_currency [EUR|RON]` (base rent as negotiated — in Romania typically EUR-indexed even
   when invoiced in RON; kept flexible for contracts already denominated in RON).
 - **bnr_exchange_rates** — daily FX reference rates cached from BNR's public feed.
-  `id`, `rate_date`, `currency (e.g. EUR)`, `rate_to_ron`. Populated by a scheduled job (see §4.6, §6); never
+  `id`, `rate_date`, `currency (e.g. EUR)`, `rate_to_ron`. Populated by a scheduled job (see Section 4.6, Section 6); never
   fetched synchronously during invoice generation so the rate used is always reproducible/auditable.
 - **tenancy_memberships** — links tenant users to a tenancy (global identity — a user can have
   tenancy_memberships on units belonging to different accounts/landlords).
@@ -161,7 +161,7 @@ scheduled Lambda refreshes the token before expiry.
 
 ## 5. Mobile application structure
 
-Single Expo/React Native codebase for iOS + Android. Because identity is global (§3), the same install of
+Single Expo/React Native codebase for iOS + Android. Because identity is global (Section 3), the same install of
 the app serves a user acting as landlord, collaborator, and/or tenant — the navigation structure and screen
 set are role-driven at runtime, not separate apps.
 
@@ -188,7 +188,7 @@ RootNavigator
     │
     └── TenantTabs (visible when the active context is a tenancy_membership)
         ├── MyTenancies (units rented, possibly across different landlords)
-        ├── ReadingWizard (per §4.5 — step-by-step camera capture, sequence_order-driven)
+        ├── ReadingWizard (per Section 4.5 — step-by-step camera capture, sequence_order-driven)
         ├── MyInvoices (view, pay online via Netopia hosted checkout, view receipt)
         └── Notifications (reminders, invoice issued, payment confirmations)
 ```
@@ -205,7 +205,7 @@ authorization scope of every screen) unambiguous.
   context/account selection, in-progress wizard step).
 - **Auth/session**: Cognito tokens (access/refresh) in `expo-secure-store` (Keychain/Keystore-backed, never
   AsyncStorage) — refreshed transparently by the API client on 401.
-- **Offline reading capture (per decision below)**: a local SQLite queue (`expo-sqlite`) — see §5.3.
+- **Offline reading capture (per decision below)**: a local SQLite queue (`expo-sqlite`) — see Section 5.3.
 
 ### 5.3 Offline-first meter reading capture
 
@@ -217,7 +217,7 @@ connection at capture time**:
 2. The wizard advances to the next meter in `sequence_order` immediately — it never blocks on network I/O.
 3. A background sync task (foreground task on app resume + `expo-background-fetch` opportunistically)
    drains the queue: requests a presigned S3 URL per pending item, uploads, then marks the row `UPLOADED`
-   and triggers the existing upload-event → Bedrock flow (§4.5) server-side.
+   and triggers the existing upload-event → Bedrock flow (Section 4.5) server-side.
 4. AI-extracted values/confidence are pulled back into the app (poll or push) once processed, so the tenant
    can confirm/correct — this confirmation step can itself happen later/offline-first too, with the
    confirmed value queued the same way if still offline.
@@ -234,7 +234,7 @@ relevant screen (e.g. a reading reminder opens `ReadingWizard` pre-scoped to tha
 
 - **E2E**: Maestro (camera/upload flows are the highest-risk regression surface — Maestro's device-farm
   friendly, YAML-based flows fit this better than Detox for a small team).
-- **EAS Build profiles** mirror the backend environments (§8): `development` (dev API, sandbox ANAF/Netopia,
+- **EAS Build profiles** mirror the backend environments (Section 8): `development` (dev API, sandbox ANAF/Netopia,
   dev client), `preview` (internal QA builds against `prod`-like staging if/when added), `production` (store
   builds, live API). **EAS Update** channels map 1:1 to these profiles for OTA JS/asset updates without an
   app-store review cycle.
@@ -317,14 +317,14 @@ Monorepo containing the mobile app, backend services, shared domain code, and in
 ```
 helix-core/
 ├── apps/
-│   └── mobile/              # Expo/React Native app (§5)
+│   └── mobile/              # Expo/React Native app (Section 5)
 ├── services/
-│   └── <name>/              # one Lambda per bounded context (§6): accounts, properties, tenancies,
+│   └── <name>/              # one Lambda per bounded context (Section 6): accounts, properties, tenancies,
 │                            # readings, invoices, payments, anaf-integration, bnr-rates
 ├── packages/
 │   └── domain/              # shared TS types, Zod schemas, Drizzle schema, tariff/FX calculation logic —
 │                            # imported by services/invoices and apps/mobile (e.g. bill preview)
-├── infra/                   # Terraform (§8) — separate tool chain, sibling directory only, not part of
+├── infra/                   # Terraform (Section 8) — separate tool chain, sibling directory only, not part of
 │                            # the JS/TS workspace graph
 └── SPEC.md
 ```
@@ -340,7 +340,7 @@ helix-core/
   pattern, not experimental).
 
 ### 7.2 Database access layer
-- **Drizzle ORM** for Aurora Postgres access from Lambda: schema (tables, enums, relations — §3.1) defined
+- **Drizzle ORM** for Aurora Postgres access from Lambda: schema (tables, enums, relations — Section 3.1) defined
   once in `packages/domain`, consumed as typed queries by every service that needs DB access.
 - Chosen over Prisma for lower cold-start overhead (no separate query-engine binary to load per invocation)
   and over raw SQL + hand-rolled migrations for compile-time type safety, while keeping generated queries
@@ -405,14 +405,14 @@ eu-west-1), one state path per environment.
 ### Phase 0 — MVP
 - Cognito auth, complete data model (accounts/memberships/scopes/properties/units/tenancies).
 - Base Terraform: network, database, auth, api, storage — provisioned for **both `dev` and `prod`** (single
-  AWS account, logically isolated per §8) from day one, not retrofitted later.
+  AWS account, logically isolated per Section 8) from day one, not retrofitted later.
 - Mobile: onboarding, property/unit CRUD, inviting collaborators/tenants, account switcher.
 - **Manual** meter reading (numeric input, no photo/AI yet).
 - Basic invoicing: computation + PDF, **no** live ANAF submission (manual payment marking for all contract types).
 
 ### Phase 1 — AI & notifications
 - Photo upload to S3 + step-by-step wizard (`sequence_order`) + automatic reading via Bedrock + user confirmation,
-  with the offline-first capture queue from day one (§5.3) — not a later hardening pass.
+  with the offline-first capture queue from day one (Section 5.3) — not a later hardening pass.
 - EventBridge monthly reminders, push notifications (Expo) + email (SES).
 - Step Functions for the monthly billing cycle.
 
@@ -429,7 +429,7 @@ eu-west-1), one state path per environment.
 
 - **Language/currency**: UI in Romanian; invoices in RON. Rent is commonly negotiated in EUR (standard
   Romanian market practice) even though it's invoiced in RON — see the `rent_currency` field and the BNR
-  conversion rule in §3.1/§4.6. Utility charges are always computed and invoiced directly in RON (meter
+  conversion rule in Section 3.1/Section 4.6. Utility charges are always computed and invoiced directly in RON (meter
   delta × unit price), never FX-converted.
 - **FX rate convention**: the rent's EUR→RON conversion uses the last BNR reference rate published before
   the invoice's issuance date (falls back across weekends/bank holidays to the last available rate) — this
