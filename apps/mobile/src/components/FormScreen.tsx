@@ -1,5 +1,5 @@
 import type { PropsWithChildren } from "react";
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet } from "react-native";
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text } from "react-native";
 import type { StyleProp, ViewStyle } from "react-native";
 
 type Props = PropsWithChildren<{ contentContainerStyle?: StyleProp<ViewStyle> }>;
@@ -12,6 +12,9 @@ type Props = PropsWithChildren<{ contentContainerStyle?: StyleProp<ViewStyle> }>
 // such ScrollView API, so it still needs KeyboardAvoidingView; the two are kept mutually exclusive
 // per platform since running both would double-adjust. keyboardShouldPersistTaps lets a button tap
 // register without first having to dismiss the keyboard.
+//
+// Also carries the "renta" wordmark, so every auth screen shows it in the same spot rather than
+// each screen repeating its own header.
 export function FormScreen({ children, contentContainerStyle }: Props) {
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "android" ? "height" : undefined}>
@@ -20,6 +23,7 @@ export function FormScreen({ children, contentContainerStyle }: Props) {
         keyboardShouldPersistTaps="handled"
         automaticallyAdjustKeyboardInsets
       >
+        <Text style={styles.brand}>renta</Text>
         {children}
       </ScrollView>
     </KeyboardAvoidingView>
@@ -29,4 +33,13 @@ export function FormScreen({ children, contentContainerStyle }: Props) {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   container: { flexGrow: 1, paddingBottom: 24 },
+  brand: {
+    fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
+    fontSize: 30,
+    fontWeight: "700",
+    letterSpacing: 1,
+    textAlign: "center",
+    color: "#1c1c1e",
+    marginBottom: 20,
+  },
 });

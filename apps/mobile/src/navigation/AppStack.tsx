@@ -22,7 +22,7 @@ export function AppStack() {
       <Stack.Screen
         name="ContextSwitcher"
         component={ContextSwitcherScreen}
-        options={{ title: "Helix" }}
+        options={{ title: "renta" }}
       />
       <Stack.Screen name="OwnerTabs" component={OwnerTabs} options={{ title: "Proprietar" }} />
       <Stack.Screen name="TenantTabs" component={TenantTabs} options={{ title: "Chiriaș" }} />
