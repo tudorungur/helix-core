@@ -154,7 +154,7 @@ export function SignUpScreen() {
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.sectionLabel}>Cont</Text>
+      <Text style={styles.sectionLabel}>Nume utilizator (email)</Text>
       <TextInput
         style={styles.input}
         placeholder="Email"
@@ -183,7 +183,7 @@ export function SignUpScreen() {
         <Text style={styles.error}>Parolele nu coincid</Text>
       ) : null}
 
-      <Text style={styles.sectionLabel}>Tip persoană</Text>
+      <Text style={styles.sectionLabel}>Entitate legală</Text>
       <View style={styles.optionList}>
         {LEGAL_FORMS.map(({ value, label }, index) => (
           <TouchableOpacity
