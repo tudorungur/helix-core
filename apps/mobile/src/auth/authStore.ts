@@ -9,7 +9,9 @@ import { create } from "zustand";
 
 import { cognitoConfig } from "./cognitoConfig";
 
-const userPool = new CognitoUserPool({
+// Exported so SignUpScreen can drive the self-service signUp/confirmRegistration flow (a
+// separate Cognito lifecycle from sign-in, so it isn't modeled as part of this store's status).
+export const userPool = new CognitoUserPool({
   UserPoolId: cognitoConfig.userPoolId,
   ClientId: cognitoConfig.userPoolClientId,
 });

@@ -166,13 +166,19 @@ users (Cognito sub) ──┬── account_memberships ──> accounts ──>
 ## 4. Key flows
 
 ### 4.1 Landlord onboarding
-Cognito sign-up → create `account` → `account_membership(role=OWNER)`. Fiscal data setup (CUI/CNP, VAT payer
-status, invoice series) in Settings.
+Cognito sign-up (email/password + email confirmation code) is a single form that also captures the
+`accounts.type` classification and fiscal data up front, not deferred to Settings: a toggle for "fiscally
+registered (PFA/SRL)?" — off → `UNREGISTERED_INDIVIDUAL`, CNP only; on → a PFA/SRL choice
+(`B2C_INDIVIDUAL`/`B2B_COMPANY`) plus `legal_name`, `cui_cnp` (CNP or CUI, checksum-validated), `vat_payer`,
+`invoice_series`. Cognito sign-up → create `account` with that data → `account_membership(role=OWNER)`.
+Settings remains where this data is *edited* later (Section 5.1 nav), plus the ANAF OAuth connect
+(Section 4.8), which necessarily happens after the account exists.
 
 If the person already has an identity (e.g. an existing `tenancy_membership` as a tenant elsewhere — global
-identity, Section 3), no new Cognito sign-up happens: "Become a landlord" from within the app just creates a
-new `account` + `account_membership(role=OWNER)` on their existing `user_id`. Their existing
-`tenancy_membership`(s) are untouched — the `ContextSwitcher` (Section 5.1) now shows both contexts.
+identity, Section 3), no new Cognito sign-up happens: "Become a landlord" from within the app shows the same
+classification + fiscal data form, then creates a new `account` + `account_membership(role=OWNER)` on their
+existing `user_id`. Their existing `tenancy_membership`(s) are untouched — the `ContextSwitcher`
+(Section 5.1) now shows both contexts.
 
 ### 4.2 Adding a collaborator
 Owner invites by email → Cognito (`AdminCreateUser` or an acceptance link if the user already exists) →
