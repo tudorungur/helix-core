@@ -114,6 +114,9 @@ resource "aws_db_proxy" "this" {
   auth {
     auth_scheme = "SECRETS"
     secret_arn  = aws_rds_cluster.this.master_user_secret[0].secret_arn
+    # Explicit, matching AWS's own default — omitting it causes a perpetual no-op diff on every
+    # plan, since the provider doesn't backfill this computed field from state on its own.
+    iam_auth = "DISABLED"
   }
 }
 
