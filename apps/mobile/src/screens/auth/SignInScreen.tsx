@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, StyleSheet, Text, TextInput, TouchableOpacity } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import { useAuthStore } from "../../auth/authStore";
+import { FormScreen } from "../../components/FormScreen";
 import type { AuthStackParamList } from "../../navigation/AuthStack";
 
 type Props = NativeStackScreenProps<AuthStackParamList, "SignIn">;
@@ -30,7 +31,7 @@ function SignInForm({ navigation }: Pick<Props, "navigation">) {
   };
 
   return (
-    <View style={styles.container}>
+    <FormScreen contentContainerStyle={styles.container}>
       <TextInput
         style={styles.input}
         placeholder="Email"
@@ -53,7 +54,7 @@ function SignInForm({ navigation }: Pick<Props, "navigation">) {
       <TouchableOpacity onPress={() => navigation.navigate("SignUp")} hitSlop={8}>
         <Text style={styles.link}>Nu ai cont? Înregistrează-te</Text>
       </TouchableOpacity>
-    </View>
+    </FormScreen>
   );
 }
 
@@ -75,7 +76,7 @@ function NewPasswordForm() {
   };
 
   return (
-    <View style={styles.container}>
+    <FormScreen contentContainerStyle={styles.container}>
       <Text style={styles.hint}>
         Este prima ta autentificare. Alege o parolă nouă (minimum 8 caractere, literă mare, literă mică și
         cifră).
@@ -91,12 +92,12 @@ function NewPasswordForm() {
       <TouchableOpacity style={styles.button} onPress={handleSubmit} disabled={submitting}>
         {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Setează parola</Text>}
       </TouchableOpacity>
-    </View>
+    </FormScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: "center", padding: 24, gap: 12 },
+  container: { justifyContent: "center", padding: 24, gap: 12 },
   input: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12 },
   button: { backgroundColor: "#1a73e8", borderRadius: 8, padding: 14, alignItems: "center" },
   buttonText: { color: "#fff", fontWeight: "600" },

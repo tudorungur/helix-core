@@ -1,10 +1,6 @@
 import { useState } from "react";
-import type { PropsWithChildren } from "react";
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
   StyleSheet,
   Switch,
   Text,
@@ -15,6 +11,7 @@ import {
 import { CognitoUser, CognitoUserAttribute } from "amazon-cognito-identity-js";
 
 import { useAuthStore, userPool } from "../../auth/authStore";
+import { FormScreen } from "../../components/FormScreen";
 import { validateCNP, validateCUI } from "../../validators/romanianFiscalId";
 
 type LegalForm = "PF" | "PFA" | "II" | "IF" | "SRL" | "SA";
@@ -28,19 +25,6 @@ const LEGAL_FORMS: { value: LegalForm; label: string }[] = [
   { value: "SRL", label: "Societate cu Răspundere Limitată (SRL)" },
   { value: "SA", label: "Societate pe Acțiuni (SA)" },
 ];
-
-// Keeps the submit button reachable above the keyboard and gives it breathing room below the
-// last field — without this the ScrollView's content (and the button with it) gets covered by
-// the keyboard while typing into the lower fields, with no way to scroll it into view.
-function FormScreen({ children }: PropsWithChildren) {
-  return (
-    <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        {children}
-      </ScrollView>
-    </KeyboardAvoidingView>
-  );
-}
 
 function accountTypeFor(legalForm: LegalForm): AccountType {
   if (legalForm === "PF") return "UNREGISTERED_INDIVIDUAL";
@@ -153,7 +137,7 @@ export function SignUpScreen() {
 
   if (step === "confirm") {
     return (
-      <FormScreen>
+      <FormScreen contentContainerStyle={styles.container}>
         <Text style={styles.hint}>Am trimis un cod de confirmare la {email}.</Text>
         <TextInput
           style={styles.input}
@@ -175,7 +159,7 @@ export function SignUpScreen() {
   }
 
   return (
-    <FormScreen>
+    <FormScreen contentContainerStyle={styles.container}>
       <Text style={styles.sectionLabel}>Nume utilizator (email)</Text>
       <TextInput
         style={styles.input}
@@ -275,8 +259,7 @@ export function SignUpScreen() {
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  container: { flexGrow: 1, padding: 24, paddingTop: 32, paddingBottom: 64, gap: 12 },
+  container: { padding: 24, paddingTop: 32, gap: 12 },
   input: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12 },
   button: { backgroundColor: "#1a73e8", borderRadius: 8, padding: 14, alignItems: "center", marginTop: 8 },
   buttonDisabled: { opacity: 0.5 },
