@@ -169,6 +169,11 @@ users (Cognito sub) ──┬── account_memberships ──> accounts ──>
 Cognito sign-up → create `account` → `account_membership(role=OWNER)`. Fiscal data setup (CUI/CNP, VAT payer
 status, invoice series) in Settings.
 
+If the person already has an identity (e.g. an existing `tenancy_membership` as a tenant elsewhere — global
+identity, Section 3), no new Cognito sign-up happens: "Become a landlord" from within the app just creates a
+new `account` + `account_membership(role=OWNER)` on their existing `user_id`. Their existing
+`tenancy_membership`(s) are untouched — the `ContextSwitcher` (Section 5.1) now shows both contexts.
+
 ### 4.2 Adding a collaborator
 Owner invites by email → Cognito (`AdminCreateUser` or an acceptance link if the user already exists) →
 `account_membership(role=COLLABORATOR)` → UI for scope assignment (selecting properties/units).
