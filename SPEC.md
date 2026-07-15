@@ -76,7 +76,8 @@ users (Cognito sub) ──┬── account_memberships ──> accounts ──>
   `id`, `name`, `type [B2C_INDIVIDUAL|B2B_COMPANY|UNREGISTERED_INDIVIDUAL]`, `legal_name`, `cui_cnp`,
   `vat_payer bool`, `invoice_series`, `invoice_next_number`, `anaf_oauth_status`, `created_by`. `type`
   gates which `tenancies.contract_type` values the account can use: `B2C_INDIVIDUAL` (PFA, has a CUI) and
-  `B2B_COMPANY` (SRL, has a CUI) both issue e-Factura → `REGISTERED_ANAF` tenancies only.
+  `B2B_COMPANY` (SRL or SA, has a CUI — both map to the same `type`, distinguished only by `legal_name`) both
+  issue e-Factura → `REGISTERED_ANAF` tenancies only.
   `UNREGISTERED_INDIVIDUAL` (a plain individual, CNP only, no CUI, no PFA registration) can't issue
   e-Factura at all → only `C2B_WITHHOLDING` or `UNREGISTERED_C2C` tenancies (Section 1's C2B/C2C rows —
   "Landlord as an individual").
