@@ -160,7 +160,7 @@ export function SignUpScreen() {
 
   return (
     <FormScreen contentContainerStyle={styles.container}>
-      <Text style={styles.sectionLabel}>Nume utilizator (email)</Text>
+      <Text style={styles.sectionLabel}>Nume utilizator</Text>
       <TextInput
         style={styles.input}
         placeholder="Email"
@@ -218,13 +218,6 @@ export function SignUpScreen() {
         />
       ) : null}
 
-      {isFiscallyRegistered ? (
-        <View style={styles.row}>
-          <Text style={styles.label}>Plătitor de TVA</Text>
-          <Switch value={vatPayer} onValueChange={setVatPayer} />
-        </View>
-      ) : null}
-
       <TextInput
         style={styles.input}
         placeholder={isFiscallyRegistered ? "CUI (ex: RO12345678 sau 12345678)" : "CNP"}
@@ -244,6 +237,13 @@ export function SignUpScreen() {
           value={invoiceSeries}
           onChangeText={setInvoiceSeries}
         />
+      ) : null}
+
+      {isFiscallyRegistered ? (
+        <View style={styles.row}>
+          <Text style={styles.label}>Plătitor de TVA</Text>
+          <Switch value={vatPayer} onValueChange={setVatPayer} />
+        </View>
       ) : null}
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -271,7 +271,6 @@ const styles = StyleSheet.create({
     color: "#8e8e93",
     fontSize: 13,
     fontWeight: "600",
-    textTransform: "uppercase",
     letterSpacing: 0.5,
     marginTop: 8,
   },
