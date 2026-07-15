@@ -1,5 +1,5 @@
 {
-  "id": "4cb9ae5c-cad9-4a49-812c-91325bac3e2f",
+  "id": "d9488cba-6404-472c-ada6-efb455dc760a",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -1217,6 +1217,25 @@
           "type": "date",
           "primaryKey": false,
           "notNull": false
+        },
+        "tenant_type": {
+          "name": "tenant_type",
+          "type": "tenant_type",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tenant_company_name": {
+          "name": "tenant_company_name",
+          "type": "varchar(200)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tenant_company_cui": {
+          "name": "tenant_company_cui",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {},
@@ -1507,7 +1526,8 @@
       "schema": "public",
       "values": [
         "B2C_INDIVIDUAL",
-        "B2B_COMPANY"
+        "B2B_COMPANY",
+        "UNREGISTERED_INDIVIDUAL"
       ]
     },
     "public.contract_type": {
@@ -1615,6 +1635,14 @@
       "values": [
         "PRIMARY_TENANT",
         "CO_TENANT"
+      ]
+    },
+    "public.tenant_type": {
+      "name": "tenant_type",
+      "schema": "public",
+      "values": [
+        "INDIVIDUAL",
+        "COMPANY"
       ]
     },
     "public.ticket_status": {

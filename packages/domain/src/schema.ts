@@ -17,7 +17,11 @@ import {
 
 // ---------- Enums ----------
 
-export const accountType = pgEnum("account_type", ["B2C_INDIVIDUAL", "B2B_COMPANY"]);
+export const accountType = pgEnum("account_type", [
+  "B2C_INDIVIDUAL",
+  "B2B_COMPANY",
+  "UNREGISTERED_INDIVIDUAL",
+]);
 export const membershipRole = pgEnum("membership_role", [
   "OWNER",
   "COLLABORATOR",
@@ -45,6 +49,7 @@ export const contractType = pgEnum("contract_type", [
   "C2B_WITHHOLDING",
   "UNREGISTERED_C2C",
 ]);
+export const tenantType = pgEnum("tenant_type", ["INDIVIDUAL", "COMPANY"]);
 export const currencyCode = pgEnum("currency_code", ["EUR", "RON"]);
 export const tenancyMembershipRole = pgEnum("tenancy_membership_role", [
   "PRIMARY_TENANT",
@@ -152,6 +157,13 @@ export const tenancies = pgTable("tenancies", {
   // optional for UNREGISTERED_C2C, not applicable to REGISTERED_ANAF.
   anafC168Registered: boolean("anaf_c168_registered").notNull().default(false),
   anafC168RegistrationDate: date("anaf_c168_registration_date"),
+  // Drives the informal B2B/C2B (COMPANY) vs B2C/C2C (INDIVIDUAL) label (Section 1) — not accounts.type.
+  tenantType: tenantType("tenant_type").notNull(),
+  // Only set when tenant_type = COMPANY — the fiscal identity for e-Factura (B2B) or the withholding
+  // statement (C2B); the individual linked via tenancy_memberships may just be an employee, not the
+  // fiscal entity itself.
+  tenantCompanyName: varchar("tenant_company_name", { length: 200 }),
+  tenantCompanyCui: varchar("tenant_company_cui", { length: 20 }),
 });
 
 export const bnrExchangeRates = pgTable("bnr_exchange_rates", {

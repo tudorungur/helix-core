@@ -10,10 +10,17 @@ Covers four types of contractual relationship on the same platform:
 
 | Type | Description                                             | Invoicing                                  |
 |------|------------------------------------------------------------|---------------------------------------------|
-| B2B  | Landlord as a legal entity (SRL) ↔ tenant as a company      | Automatic, ANAF e-Factura (SPV OAuth)        |
-| B2C  | Landlord as a legal entity/sole trader (PFA) ↔ tenant as an individual | Automatic, ANAF e-Factura (SPV OAuth)      |
+| B2B  | Landlord as a legal entity/sole trader (SRL or PFA) ↔ tenant as a company | Automatic, ANAF e-Factura (SPV OAuth) |
+| B2C  | Landlord as a legal entity/sole trader (SRL or PFA) ↔ tenant as an individual | Automatic, ANAF e-Factura (SPV OAuth) |
 | C2B  | Landlord as an individual ↔ tenant as a company             | Manual — "expense statement" showing the 8% withholding tax the tenant-company must retain (Section 4.10); ANAF contract registration (Form C168) is mandatory, not optional |
 | C2C  | Individual ↔ individual, contract not registered with ANAF (registration optional) | Manual — "expense statement" + manual payment marking by the landlord |
+
+These four labels are informal shorthand, not stored as their own value anywhere: whether a tenancy is
+"B2B" vs "B2C" (or "C2B" vs "C2C") is entirely a function of whether the tenant is a company or an
+individual (`tenancies.tenant_type`, Section 3.1) — the landlord's own legal form (SRL vs PFA, both
+`REGISTERED_ANAF`-capable; see `accounts.type`, Section 3.1) doesn't change e-Factura behavior at all, so it
+doesn't change the label either. A PFA renting to a company is B2B, exactly like an SRL renting to a
+company.
 
 ### 1.1 Problem statement & value proposition (per contract type)
 
@@ -66,8 +73,13 @@ users (Cognito sub) ──┬── account_memberships ──> accounts ──>
 
 - **users** — `id (cognito_sub)`, `email`, `phone`, `name`. Holds no roles.
 - **accounts** — a landlord's portfolio (individual/sole trader/SRL).
-  `id`, `name`, `type [B2C_INDIVIDUAL|B2B_COMPANY]`, `legal_name`, `cui_cnp`, `vat_payer bool`,
-  `invoice_series`, `invoice_next_number`, `anaf_oauth_status`, `created_by`.
+  `id`, `name`, `type [B2C_INDIVIDUAL|B2B_COMPANY|UNREGISTERED_INDIVIDUAL]`, `legal_name`, `cui_cnp`,
+  `vat_payer bool`, `invoice_series`, `invoice_next_number`, `anaf_oauth_status`, `created_by`. `type`
+  gates which `tenancies.contract_type` values the account can use: `B2C_INDIVIDUAL` (PFA, has a CUI) and
+  `B2B_COMPANY` (SRL, has a CUI) both issue e-Factura → `REGISTERED_ANAF` tenancies only.
+  `UNREGISTERED_INDIVIDUAL` (a plain individual, CNP only, no CUI, no PFA registration) can't issue
+  e-Factura at all → only `C2B_WITHHOLDING` or `UNREGISTERED_C2C` tenancies (Section 1's C2B/C2C rows —
+  "Landlord as an individual").
 - **account_memberships** — links a user to an account with a role.
   `id`, `account_id`, `user_id`, `role [OWNER|COLLABORATOR|ACCOUNTANT_READONLY]`.
   - `OWNER` → full implicit access, no scope needed.
@@ -92,6 +104,12 @@ users (Cognito sub) ──┬── account_memberships ──> accounts ──>
   `UNREGISTERED_C2C`. Not applicable to `REGISTERED_ANAF` (B2B/B2C), where the owner already operates under
   a different fiscal regime (SRL/PFA) and e-Factura, not C168, is the relevant mechanism. The app only
   tracks that registration happened (a confirmation checkbox + date) — it does not submit Form C168 itself.
+  Also `tenant_type [INDIVIDUAL|COMPANY]` — the fact that actually drives the informal B2B/C2B (`COMPANY`)
+  vs B2C/C2C (`INDIVIDUAL`) label (Section 1), not `accounts.type`. Only when `tenant_type = COMPANY`:
+  `tenant_company_name`, `tenant_company_cui` — the tenant-company's fiscal identity, needed to address
+  the e-Factura (B2B) or to identify the paying company on the withholding statement (C2B); the individual
+  linked via `tenancy_memberships` may just be an employee using the app on the company's behalf, not the
+  fiscal entity itself.
 - **bnr_exchange_rates** — daily FX reference rates cached from BNR's public feed.
   `id`, `rate_date`, `currency (e.g. EUR)`, `rate_to_ron`. Populated by a scheduled job (see Section 4.6, Section 6); never
   fetched synchronously during invoice generation so the rate used is always reproducible/auditable.

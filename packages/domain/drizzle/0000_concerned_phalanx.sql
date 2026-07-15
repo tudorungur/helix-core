@@ -1,4 +1,4 @@
-CREATE TYPE "public"."account_type" AS ENUM('B2C_INDIVIDUAL', 'B2B_COMPANY');--> statement-breakpoint
+CREATE TYPE "public"."account_type" AS ENUM('B2C_INDIVIDUAL', 'B2B_COMPANY', 'UNREGISTERED_INDIVIDUAL');--> statement-breakpoint
 CREATE TYPE "public"."contract_type" AS ENUM('REGISTERED_ANAF', 'C2B_WITHHOLDING', 'UNREGISTERED_C2C');--> statement-breakpoint
 CREATE TYPE "public"."currency_code" AS ENUM('EUR', 'RON');--> statement-breakpoint
 CREATE TYPE "public"."deposit_photo_phase" AS ENUM('MOVE_IN', 'MOVE_OUT');--> statement-breakpoint
@@ -11,6 +11,7 @@ CREATE TYPE "public"."payment_method" AS ENUM('MANUAL', 'NETOPIA_CARD');--> stat
 CREATE TYPE "public"."property_type" AS ENUM('apartment_building', 'house');--> statement-breakpoint
 CREATE TYPE "public"."tariff_basis" AS ENUM('METER_INDEX', 'FIXED_COST', 'QUOTA_SHARE', 'PER_PERSON');--> statement-breakpoint
 CREATE TYPE "public"."tenancy_membership_role" AS ENUM('PRIMARY_TENANT', 'CO_TENANT');--> statement-breakpoint
+CREATE TYPE "public"."tenant_type" AS ENUM('INDIVIDUAL', 'COMPANY');--> statement-breakpoint
 CREATE TYPE "public"."ticket_status" AS ENUM('OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED');--> statement-breakpoint
 CREATE TYPE "public"."utility_type" AS ENUM('COLD_WATER', 'HOT_WATER', 'GAS', 'ELECTRICITY', 'INTERNET', 'TRASH', 'MAINTENANCE', 'OTHER');--> statement-breakpoint
 CREATE TABLE "account_membership_scopes" (
@@ -165,7 +166,10 @@ CREATE TABLE "tenancies" (
 	"rent_amount" numeric NOT NULL,
 	"rent_currency" "currency_code" NOT NULL,
 	"anaf_c168_registered" boolean DEFAULT false NOT NULL,
-	"anaf_c168_registration_date" date
+	"anaf_c168_registration_date" date,
+	"tenant_type" "tenant_type" NOT NULL,
+	"tenant_company_name" varchar(200),
+	"tenant_company_cui" varchar(20)
 );
 --> statement-breakpoint
 CREATE TABLE "tenancy_memberships" (
