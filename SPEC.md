@@ -476,9 +476,10 @@ helix-core/
 - **Turborepo** orchestrates build/test/lint across packages: derives the dependency graph from `workspace:*`
   references, runs tasks in the correct order, and caches per-package outputs (only what changed, and its
   dependents, is rebuilt/retested).
-- **Expo/Metro**: pnpm's symlinked `node_modules` requires `apps/mobile/metro.config.js` to set
-  `watchFolders` + `resolver.nodeModulesPaths` so Metro resolves workspace-linked packages (a documented
-  pattern, not experimental).
+- **Expo/Metro**: as of Expo SDK 52+ (currently on SDK 57), Metro auto-detects the monorepo and resolves
+  pnpm's symlinked `node_modules` on its own via `expo/metro-config` — **no custom `metro.config.js`**.
+  Earlier SDKs needed manual `watchFolders`/`resolver.nodeModulesPaths` config; that's now actively wrong
+  to add (the official guide says to delete it if migrating from an older setup).
 
 ### 7.2 Database access layer
 - **Drizzle ORM** for Aurora Postgres access from Lambda: schema (tables, enums, relations — Section 3.1) defined
