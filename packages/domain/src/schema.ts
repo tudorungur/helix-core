@@ -18,8 +18,8 @@ import {
 // ---------- Enums ----------
 
 export const accountType = pgEnum("account_type", [
-  "B2C_INDIVIDUAL",
-  "B2B_COMPANY",
+  "REGISTERED_INDIVIDUAL",
+  "REGISTERED_COMPANY",
   "UNREGISTERED_INDIVIDUAL",
 ]);
 export const membershipRole = pgEnum("membership_role", [

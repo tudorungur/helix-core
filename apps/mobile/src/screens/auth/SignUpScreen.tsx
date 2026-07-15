@@ -14,20 +14,26 @@ import { CognitoUser, CognitoUserAttribute } from "amazon-cognito-identity-js";
 import { useAuthStore, userPool } from "../../auth/authStore";
 import { validateCNP, validateCUI } from "../../validators/romanianFiscalId";
 
-type LegalForm = "PF" | "PFA" | "SRL" | "SA";
-type AccountType = "UNREGISTERED_INDIVIDUAL" | "B2C_INDIVIDUAL" | "B2B_COMPANY";
+type LegalForm = "PF" | "PFA" | "II" | "IF" | "SRL" | "SA";
+type AccountType = "UNREGISTERED_INDIVIDUAL" | "REGISTERED_INDIVIDUAL" | "REGISTERED_COMPANY";
 
 const LEGAL_FORMS: { value: LegalForm; label: string }[] = [
   { value: "PF", label: "Persoană Fizică" },
   { value: "PFA", label: "Persoană Fizică Autorizată (PFA)" },
+  { value: "II", label: "Întreprindere Individuală (II)" },
+  { value: "IF", label: "Întreprindere Familială (IF)" },
   { value: "SRL", label: "Societate cu Răspundere Limitată (SRL)" },
   { value: "SA", label: "Societate pe Acțiuni (SA)" },
 ];
 
 function accountTypeFor(legalForm: LegalForm): AccountType {
   if (legalForm === "PF") return "UNREGISTERED_INDIVIDUAL";
-  if (legalForm === "PFA") return "B2C_INDIVIDUAL";
-  return "B2B_COMPANY"; // SRL and SA — accounts.type doesn't distinguish them (Section 3.1)
+  // PFA, II, IF — the three sibling forms under OUG 44/2008, none with legal personality, all
+  // CUI-bearing and taxed the same way; accounts.type doesn't distinguish them (Section 3.1).
+  // Naming is about fiscal registration, not the B2B/B2C tenancy shorthand — a REGISTERED_INDIVIDUAL
+  // landlord can rent to a company (B2B) just as freely as a REGISTERED_COMPANY one (Section 1).
+  if (legalForm === "PFA" || legalForm === "II" || legalForm === "IF") return "REGISTERED_INDIVIDUAL";
+  return "REGISTERED_COMPANY"; // SRL and SA — accounts.type doesn't distinguish them either
 }
 
 // Section 4.1 — landlord self-registration. Cognito sign-up handles email/password; everything
@@ -53,11 +59,11 @@ export function SignUpScreen() {
 
   const signIn = useAuthStore((state) => state.signIn);
 
-  const isCompanyOrPfa = legalForm !== "PF";
+  const isFiscallyRegistered = legalForm !== "PF";
   const passwordsMatch = password.length > 0 && password === confirmPassword;
-  const cuiCnpValid = isCompanyOrPfa ? validateCUI(cuiCnp) : validateCNP(cuiCnp);
-  const invoiceSeriesValid = !isCompanyOrPfa || /^[A-Z0-9]{1,6}$/i.test(invoiceSeries);
-  const legalNameValid = !isCompanyOrPfa || legalName.trim().length > 0;
+  const cuiCnpValid = isFiscallyRegistered ? validateCUI(cuiCnp) : validateCNP(cuiCnp);
+  const invoiceSeriesValid = !isFiscallyRegistered || /^[A-Z0-9]{1,6}$/i.test(invoiceSeries);
+  const legalNameValid = !isFiscallyRegistered || legalName.trim().length > 0;
   const formValid =
     email.trim().length > 0 &&
     passwordsMatch &&
@@ -117,10 +123,10 @@ export function SignUpScreen() {
       // classification the user just filled in isn't persisted anywhere past this log line.
       console.log("Pending account creation payload:", {
         type: accountTypeFor(legalForm),
-        legalName: isCompanyOrPfa ? legalName : undefined,
-        cuiCnp: isCompanyOrPfa && vatPayer ? `RO${cuiCnp}` : cuiCnp,
-        vatPayer: isCompanyOrPfa ? vatPayer : false,
-        invoiceSeries: isCompanyOrPfa ? invoiceSeries : undefined,
+        legalName: isFiscallyRegistered ? legalName : undefined,
+        cuiCnp,
+        vatPayer: isFiscallyRegistered ? vatPayer : false,
+        invoiceSeries: isFiscallyRegistered ? invoiceSeries : undefined,
       });
     } catch {
       // error state already set above
@@ -203,7 +209,7 @@ export function SignUpScreen() {
 
       <Text style={styles.sectionLabel}>Date fiscale</Text>
 
-      {isCompanyOrPfa ? (
+      {isFiscallyRegistered ? (
         <TextInput
           style={styles.input}
           placeholder="Denumire legală"
@@ -212,7 +218,7 @@ export function SignUpScreen() {
         />
       ) : null}
 
-      {isCompanyOrPfa ? (
+      {isFiscallyRegistered ? (
         <View style={styles.row}>
           <Text style={styles.label}>Plătitor de TVA</Text>
           <Switch value={vatPayer} onValueChange={setVatPayer} />
@@ -221,16 +227,16 @@ export function SignUpScreen() {
 
       <TextInput
         style={styles.input}
-        placeholder={isCompanyOrPfa ? (vatPayer ? "CUI (ex: RO12345678)" : "CUI (ex: 12345678)") : "CNP"}
+        placeholder={isFiscallyRegistered ? "CUI (ex: RO12345678 sau 12345678)" : "CNP"}
         keyboardType="number-pad"
         value={cuiCnp}
         onChangeText={setCuiCnp}
       />
       {cuiCnp.length > 0 && !cuiCnpValid ? (
-        <Text style={styles.error}>{isCompanyOrPfa ? "CUI invalid" : "CNP invalid"}</Text>
+        <Text style={styles.error}>{isFiscallyRegistered ? "CUI invalid" : "CNP invalid"}</Text>
       ) : null}
 
-      {isCompanyOrPfa ? (
+      {isFiscallyRegistered ? (
         <TextInput
           style={styles.input}
           placeholder="Serie facturi"

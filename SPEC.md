@@ -73,11 +73,16 @@ users (Cognito sub) ──┬── account_memberships ──> accounts ──>
 
 - **users** — `id (cognito_sub)`, `email`, `phone`, `name`. Holds no roles.
 - **accounts** — a landlord's portfolio (individual/sole trader/SRL).
-  `id`, `name`, `type [B2C_INDIVIDUAL|B2B_COMPANY|UNREGISTERED_INDIVIDUAL]`, `legal_name`, `cui_cnp`,
-  `vat_payer bool`, `invoice_series`, `invoice_next_number`, `anaf_oauth_status`, `created_by`. `type`
-  gates which `tenancies.contract_type` values the account can use: `B2C_INDIVIDUAL` (PFA, has a CUI) and
-  `B2B_COMPANY` (SRL or SA, has a CUI — both map to the same `type`, distinguished only by `legal_name`) both
-  issue e-Factura → `REGISTERED_ANAF` tenancies only.
+  `id`, `name`, `type [REGISTERED_INDIVIDUAL|REGISTERED_COMPANY|UNREGISTERED_INDIVIDUAL]`, `legal_name`,
+  `cui_cnp`, `vat_payer bool`, `invoice_series`, `invoice_next_number`, `anaf_oauth_status`, `created_by`.
+  Named for fiscal registration status, deliberately *not* reusing the informal B2B/B2C/C2B/C2C shorthand
+  above — that labels the *tenancy* (Section 1), and is a function of `tenancies.tenant_type`, completely
+  independent of this field (a `REGISTERED_INDIVIDUAL` landlord renting to a company is B2B, exactly like a
+  `REGISTERED_COMPANY` landlord renting to a company — see Section 1's note). `type` gates which
+  `tenancies.contract_type` values the account can use: `REGISTERED_INDIVIDUAL` (PFA, II, or IF — the three
+  sibling individual forms under OUG 44/2008, none with legal personality, all CUI-bearing, taxed the same
+  way) and `REGISTERED_COMPANY` (SRL or SA, has a CUI — both map to the same `type`, distinguished only by
+  `legal_name`) both issue e-Factura → `REGISTERED_ANAF` tenancies only.
   `UNREGISTERED_INDIVIDUAL` (a plain individual, CNP only, no CUI, no PFA registration) can't issue
   e-Factura at all → only `C2B_WITHHOLDING` or `UNREGISTERED_C2C` tenancies (Section 1's C2B/C2C rows —
   "Landlord as an individual").
@@ -168,9 +173,10 @@ users (Cognito sub) ──┬── account_memberships ──> accounts ──>
 
 ### 4.1 Landlord onboarding
 Cognito sign-up (email/password + email confirmation code) is a single form that also captures the
-`accounts.type` classification and fiscal data up front, not deferred to Settings: a toggle for "fiscally
-registered (PFA/SRL)?" — off → `UNREGISTERED_INDIVIDUAL`, CNP only; on → a PFA/SRL choice
-(`B2C_INDIVIDUAL`/`B2B_COMPANY`) plus `legal_name`, `cui_cnp` (CNP or CUI, checksum-validated), `vat_payer`,
+`accounts.type` classification and fiscal data up front, not deferred to Settings: a legal-form picker —
+Persoană Fizică / PFA / Întreprindere Individuală / Întreprindere Familială / SRL / SA — where Persoană
+Fizică → `UNREGISTERED_INDIVIDUAL`, CNP only; any other choice → `REGISTERED_INDIVIDUAL` (PFA/II/IF) or
+`REGISTERED_COMPANY` (SRL/SA) plus `legal_name`, `cui_cnp` (CNP or CUI, checksum-validated), `vat_payer`,
 `invoice_series`. Cognito sign-up → create `account` with that data → `account_membership(role=OWNER)`.
 Settings remains where this data is *edited* later (Section 5.1 nav), plus the ANAF OAuth connect
 (Section 4.8), which necessarily happens after the account exists.
