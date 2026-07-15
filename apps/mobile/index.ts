@@ -1,6 +1,6 @@
 // Must be the very first import — amazon-cognito-identity-js needs crypto.getRandomValues,
 // which isn't available in the React Native runtime without this polyfill.
-import 'react-native-get-random-values';
+import './src/cryptoPolyfill';
 
 import { registerRootComponent } from 'expo';
 

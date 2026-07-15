@@ -2,6 +2,7 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
 import { ContextSwitcherScreen } from "../screens/ContextSwitcherScreen";
 import { OwnerTabs } from "./OwnerTabs";
+import { SignOutButton } from "./SignOutButton";
 import { TenantTabs } from "./TenantTabs";
 
 export type AppStackParamList = {
@@ -17,7 +18,7 @@ const Stack = createNativeStackNavigator<AppStackParamList>();
 // same ContextSwitcher — never merged into one screen.
 export function AppStack() {
   return (
-    <Stack.Navigator>
+    <Stack.Navigator screenOptions={{ headerRight: () => <SignOutButton /> }}>
       <Stack.Screen
         name="ContextSwitcher"
         component={ContextSwitcherScreen}
