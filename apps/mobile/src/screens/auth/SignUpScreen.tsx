@@ -2,7 +2,6 @@ import { useState } from "react";
 import {
   ActivityIndicator,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -50,7 +49,9 @@ export function SignUpScreen() {
   const [legalForm, setLegalForm] = useState<LegalForm>("PF");
   const [legalName, setLegalName] = useState("");
   const [cuiCnp, setCuiCnp] = useState("");
-  const [vatPayer, setVatPayer] = useState(false);
+  // null = not yet answered — a boolean can't represent "unanswered," and defaulting to false
+  // would let "plătitor de TVA" go unnoticed. formValid below blocks submit until this is set.
+  const [vatPayer, setVatPayer] = useState<boolean | null>(null);
   const [invoiceSeries, setInvoiceSeries] = useState("");
 
   const [code, setCode] = useState("");
@@ -64,12 +65,14 @@ export function SignUpScreen() {
   const cuiCnpValid = isFiscallyRegistered ? validateCUI(cuiCnp) : validateCNP(cuiCnp);
   const invoiceSeriesValid = !isFiscallyRegistered || /^[A-Z0-9]{1,6}$/i.test(invoiceSeries);
   const legalNameValid = !isFiscallyRegistered || legalName.trim().length > 0;
+  const vatPayerValid = !isFiscallyRegistered || vatPayer !== null;
   const formValid =
     email.trim().length > 0 &&
     passwordsMatch &&
     cuiCnpValid &&
     invoiceSeriesValid &&
-    legalNameValid;
+    legalNameValid &&
+    vatPayerValid;
 
   const handleCreateAccount = async () => {
     setError(null);
@@ -125,7 +128,7 @@ export function SignUpScreen() {
         type: accountTypeFor(legalForm),
         legalName: isFiscallyRegistered ? legalName : undefined,
         cuiCnp,
-        vatPayer: isFiscallyRegistered ? vatPayer : false,
+        vatPayer: isFiscallyRegistered ? vatPayer === true : false,
         invoiceSeries: isFiscallyRegistered ? invoiceSeries : undefined,
       });
     } catch {
@@ -240,9 +243,26 @@ export function SignUpScreen() {
       ) : null}
 
       {isFiscallyRegistered ? (
-        <View style={styles.row}>
+        <View>
           <Text style={styles.label}>Plătitor de TVA</Text>
-          <Switch value={vatPayer} onValueChange={setVatPayer} />
+          <View style={styles.vatRow}>
+            <TouchableOpacity
+              style={[styles.vatOption, vatPayer === true && styles.vatOptionSelected]}
+              onPress={() => setVatPayer(true)}
+            >
+              <Text style={[styles.vatOptionText, vatPayer === true && styles.vatOptionTextSelected]}>
+                Da
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.vatOption, vatPayer === false && styles.vatOptionSelected]}
+              onPress={() => setVatPayer(false)}
+            >
+              <Text style={[styles.vatOptionText, vatPayer === false && styles.vatOptionTextSelected]}>
+                Nu
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
       ) : null}
 
@@ -274,8 +294,19 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     marginTop: 8,
   },
-  row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 4 },
-  label: { flex: 1, marginRight: 12 },
+  label: { marginBottom: 6 },
+  vatRow: { flexDirection: "row", gap: 8 },
+  vatOption: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: "#1a73e8",
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: "center",
+  },
+  vatOptionSelected: { backgroundColor: "#1a73e8" },
+  vatOptionText: { color: "#1a73e8", fontWeight: "600" },
+  vatOptionTextSelected: { color: "#fff" },
   optionList: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, overflow: "hidden" },
   option: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 12 },
   optionDivider: { borderTopWidth: 1, borderTopColor: "#ccc" },
