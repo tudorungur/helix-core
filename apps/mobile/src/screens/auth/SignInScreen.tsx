@@ -1,15 +1,19 @@
 import { useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 
 import { useAuthStore } from "../../auth/authStore";
+import type { AuthStackParamList } from "../../navigation/AuthStack";
 
-export function SignInScreen() {
+type Props = NativeStackScreenProps<AuthStackParamList, "SignIn">;
+
+export function SignInScreen({ navigation }: Props) {
   const status = useAuthStore((state) => state.status);
 
-  return status === "newPasswordRequired" ? <NewPasswordForm /> : <SignInForm />;
+  return status === "newPasswordRequired" ? <NewPasswordForm /> : <SignInForm navigation={navigation} />;
 }
 
-function SignInForm() {
+function SignInForm({ navigation }: Pick<Props, "navigation">) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -45,6 +49,9 @@ function SignInForm() {
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <TouchableOpacity style={styles.button} onPress={handleSubmit} disabled={submitting}>
         {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Intră în cont</Text>}
+      </TouchableOpacity>
+      <TouchableOpacity onPress={() => navigation.navigate("SignUp")} hitSlop={8}>
+        <Text style={styles.link}>Nu ai cont? Înregistrează-te</Text>
       </TouchableOpacity>
     </View>
   );
@@ -95,4 +102,5 @@ const styles = StyleSheet.create({
   buttonText: { color: "#fff", fontWeight: "600" },
   error: { color: "#d32f2f" },
   hint: { color: "#555", marginBottom: 4 },
+  link: { color: "#1a73e8", textAlign: "center", marginTop: 8 },
 });
