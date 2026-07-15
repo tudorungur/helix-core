@@ -1,2 +1,23 @@
-# Modules (network, database, auth, storage, api, workflows, messaging, observability — Section 8)
-# are wired in here as they're built. Nothing to provision yet.
+module "network" {
+  source = "../../modules/network"
+
+  environment = var.environment
+  aws_region  = var.aws_region
+}
+
+module "database" {
+  source = "../../modules/database"
+
+  environment              = var.environment
+  vpc_id                   = module.network.vpc_id
+  private_subnet_ids       = module.network.private_subnet_ids
+  lambda_security_group_id = module.network.lambda_security_group_id
+  min_capacity             = var.aurora_min_capacity
+  max_capacity             = var.aurora_max_capacity
+}
+
+module "auth" {
+  source = "../../modules/auth"
+
+  environment = var.environment
+}
