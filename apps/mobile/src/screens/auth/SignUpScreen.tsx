@@ -137,7 +137,7 @@ export function SignUpScreen() {
 
   if (step === "confirm") {
     return (
-      <FormScreen contentContainerStyle={styles.container}>
+      <FormScreen contentContainerStyle={styles.container} longForm>
         <Text style={styles.hint}>Am trimis un cod de confirmare la {email}.</Text>
         <TextInput
           style={styles.input}
@@ -159,7 +159,7 @@ export function SignUpScreen() {
   }
 
   return (
-    <FormScreen contentContainerStyle={styles.container}>
+    <FormScreen contentContainerStyle={styles.container} longForm>
       <Text style={styles.sectionLabel}>Nume utilizator</Text>
       <TextInput
         style={styles.input}
