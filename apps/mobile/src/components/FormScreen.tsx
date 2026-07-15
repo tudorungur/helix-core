@@ -4,19 +4,21 @@ import type { StyleProp, ViewStyle } from "react-native";
 
 type Props = PropsWithChildren<{ contentContainerStyle?: StyleProp<ViewStyle> }>;
 
-// Wraps every screen that uses the software keyboard. iOS's own "scroll the focused field into
-// view" behavior is left alone (correct — the field being typed into should stay visible).
-// KeyboardAvoidingView (behavior="padding") already shrinks the visible area by exactly the
-// keyboard's height, so scrolling to the end always clears it — the ScrollView only needs a small
-// fixed margin below the last element, not another keyboard-sized chunk stacked on top (that
-// double-counts the keyboard height and leaves a large empty gap above it instead of hugging it).
-// keyboardShouldPersistTaps lets a button tap register without first having to dismiss the keyboard.
+// Wraps every screen that uses the software keyboard. On iOS, automaticallyAdjustKeyboardInsets
+// (RN 0.68+) hands keyboard-avoidance to the native UIScrollView machinery, which measures the
+// *real* keyboard overlap and content layout itself — KeyboardAvoidingView's own "padding"
+// measurement was consistently off here (likely thrown off by the native-stack header above it),
+// leaving the focused field partially hidden and the submit button unreachable. Android has no
+// such ScrollView API, so it still needs KeyboardAvoidingView; the two are kept mutually exclusive
+// per platform since running both would double-adjust. keyboardShouldPersistTaps lets a button tap
+// register without first having to dismiss the keyboard.
 export function FormScreen({ children, contentContainerStyle }: Props) {
   return (
-    <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+    <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "android" ? "height" : undefined}>
       <ScrollView
         contentContainerStyle={[styles.container, contentContainerStyle]}
         keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets
       >
         {children}
       </ScrollView>
