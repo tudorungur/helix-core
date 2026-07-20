@@ -204,8 +204,8 @@ OAuth connect (Section 4.8), which necessarily happens after both the account an
 If the person already has an identity (e.g. an existing `tenancy_membership` as a tenant elsewhere — global
 identity, Section 3), no new Cognito sign-up happens: "Become a landlord" from within the app shows the same
 minimal form, then creates a new `account` + `account_membership(role=OWNER)` on their existing `user_id`.
-Their existing `tenancy_membership`(s) are untouched — the `ContextSwitcher` (Section 5.1) now shows both
-contexts.
+Their existing `tenancy_membership`(s) are untouched — the header context toggle (Section 5.1) now shows
+both contexts.
 
 ### 4.2 Adding a collaborator
 Owner invites by email → Cognito (`AdminCreateUser` or an acceptance link if the user already exists) →
@@ -384,9 +384,10 @@ RootNavigator
 │       existing account_membership or tenancy_membership)
 │
 └── AppStack (authenticated — Cognito session present)
-    ├── ContextSwitcher (top-level, always reachable)
-    │   shows every account_membership + tenancy_membership the user has;
-    │   picking one scopes everything below to that context
+    │   headerLeft: a compact Proprietar/Chiriaș toggle (not a separate screen) — always shows both,
+    │   even if the user only has one context; tapping the one they have switches the tabs below
+    │   (no navigation/push involved), tapping the one they don't prompts to activate it
+    │   ("Become a landlord" / link a tenancy via association code — §4.1/§4.4)
     │
     ├── OwnerTabs (visible when the active context is an account_membership)
     │   ├── Portfolio (properties → units, add/edit, utility toggles + tariff config)
@@ -407,8 +408,10 @@ RootNavigator
 ```
 
 A user with both an `account_membership` and a `tenancy_membership` sees both `OwnerTabs` and `TenantTabs`
-as separate contexts in the switcher — never merged into one screen, to keep the mental model (and the
-authorization scope of every screen) unambiguous.
+as separate contexts reachable via the header toggle — never merged into one screen, to keep the mental
+model (and the authorization scope of every screen) unambiguous. Which context(s) a user has is inherited
+from what they picked at sign-up (§4.1) by default, plus whichever they activate afterward (e.g. "Become a
+landlord", or linking a tenancy via an association code — §4.4) — both extend the set, neither replaces it.
 
 ### 5.2 State management & data layer
 

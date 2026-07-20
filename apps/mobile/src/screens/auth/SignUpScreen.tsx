@@ -11,6 +11,7 @@ import { CognitoUser, CognitoUserAttribute } from "amazon-cognito-identity-js";
 
 import { useAuthStore, userPool } from "../../auth/authStore";
 import { FormScreen } from "../../components/FormScreen";
+import { useContextStore } from "../../context/contextStore";
 
 type Role = "OWNER" | "TENANT";
 type LegalForm = "PF" | "PFA" | "II" | "IF" | "SRL" | "SA";
@@ -68,6 +69,7 @@ export function SignUpScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const signIn = useAuthStore((state) => state.signIn);
+  const setAvailableContexts = useContextStore((state) => state.setAvailableContexts);
 
   const isPersonalForm = legalForm === "PF";
 
@@ -125,6 +127,9 @@ export function SignUpScreen() {
       });
 
       await signIn(email, password);
+      // Section 3.2 point 4 / 5.1 — seeds the header ContextToggle with the role just picked; see
+      // contextStore.ts for why this is a session-only guess, not real membership data.
+      if (role) setAvailableContexts([role]);
 
       // TODO(backend): no API exists yet — this is where the call goes once it does. OWNER: create
       // `accounts(type, name)` + `account_membership(role=OWNER)` (Section 4.1) — fiscal fields
@@ -241,7 +246,7 @@ export function SignUpScreen() {
         </>
       ) : (
         <>
-          <Text style={styles.sectionLabel}>Denumire legală</Text>
+          <Text style={styles.sectionLabel}>Denumire entitate legală</Text>
           <TextInput
             style={styles.input}
             placeholder="Denumire"
@@ -249,7 +254,7 @@ export function SignUpScreen() {
             onChangeText={setDenumire}
           />
           <Text style={styles.caption}>
-            CUI-ul și celelalte date fiscale se cer când se creează sau se leagă primul tenancy, nu acum.
+            CUI-ul sau alte date fiscale vor fi necesare la creearea sau adaugarea primei unitati inchiriate, nu la crearea contului.
           </Text>
         </>
       )}

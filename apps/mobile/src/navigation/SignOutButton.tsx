@@ -2,8 +2,8 @@ import { Text, TouchableOpacity } from "react-native";
 
 import { useAuthStore } from "../auth/authStore";
 
-// Rendered as headerRight on every screen in AppStack (Section 5.1), so sign-out is reachable
-// the same way — top-right of the nav bar — from ContextSwitcher, OwnerTabs, and TenantTabs alike.
+// Rendered as headerRight on AppStack's single screen (Section 5.1) — top-right of the nav bar,
+// next to the ContextToggle on the left, regardless of whether OwnerTabs or TenantTabs is active.
 export function SignOutButton() {
   const signOut = useAuthStore((state) => state.signOut);
 
