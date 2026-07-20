@@ -1,30 +1,35 @@
-import { Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ActionSheetIOS, Alert, Platform, StyleSheet, Text, TouchableOpacity } from "react-native";
 
 import { useContextStore } from "../context/contextStore";
 import type { AppContext } from "../context/contextStore";
 
 const LABELS: Record<AppContext, string> = { OWNER: "Proprietar", TENANT: "Chiriaș" };
+const CONTEXTS: AppContext[] = ["OWNER", "TENANT"];
 
-// AppStack's headerLeft (Section 3.2 point 4 / Section 5.1). Always shows both contexts, not just
-// the ones the user already has — tapping one they don't have yet prompts to activate it (§4.1
-// "Become a landlord" / §4.4 linking a tenancy via association code) rather than hiding it, since
-// growing into the other persona is a first-class action, not an edge case.
-//
-// TODO: confirming "become a landlord" here only flips the context — it skips §4.1's legal-form +
-// name capture that a real new `account` needs. Fine for now (matches how much of this app is
-// still mocked pending a backend), but that capture step still needs a real screen eventually.
-export function ContextToggle() {
+// AppStack's headerLeft (Section 3.2 point 4 / Section 5.1) — a highlighted dropdown-style chip
+// ("Proprietar ▾"), left-aligned. Tapping opens a native action sheet with both contexts — the
+// standard iOS pattern for a workspace/persona switcher (Mail's account switcher, Slack's
+// workspace picker), just rendered as a chip instead of the plain nav-bar title. Always offers
+// both contexts, not just the ones the user has — picking one they don't yet prompts to activate
+// it (§4.1 "Become a landlord" / §4.4 linking a tenancy via association code).
+export function ContextTitle() {
   const activeContext = useContextStore((state) => state.activeContext);
   const availableContexts = useContextStore((state) => state.availableContexts);
   const setActiveContext = useContextStore((state) => state.setActiveContext);
   const addContext = useContextStore((state) => state.addContext);
 
-  const handlePress = (context: AppContext) => {
+  const activate = (context: AppContext) => {
+    if (context === activeContext) return;
+
     if (availableContexts.includes(context)) {
       setActiveContext(context);
       return;
     }
 
+    // TODO: only flips the context — skips §4.1's legal-form+name capture (becoming an owner) or
+    // §4.4's association-code entry (becoming a tenant, though TenantTenanciesScreen already
+    // exists and is reachable once this adds the tenant context). Mocked, same as the rest of the
+    // app pending a backend.
     Alert.alert(
       context === "OWNER" ? "Devii și Proprietar?" : "Devii și Chiriaș?",
       context === "OWNER"
@@ -43,28 +48,52 @@ export function ContextToggle() {
     );
   };
 
+  const openPicker = () => {
+    const optionLabels = CONTEXTS.map((context) =>
+      context === activeContext ? `${LABELS[context]} ✓` : LABELS[context],
+    );
+
+    if (Platform.OS === "ios") {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          title: "Alege contextul",
+          options: [...optionLabels, "Anulează"],
+          cancelButtonIndex: optionLabels.length,
+        },
+        (index) => {
+          if (index < CONTEXTS.length) activate(CONTEXTS[index]);
+        },
+      );
+      return;
+    }
+
+    Alert.alert("Alege contextul", undefined, [
+      ...CONTEXTS.map((context, index) => ({
+        text: optionLabels[index],
+        onPress: () => activate(context),
+      })),
+      { text: "Anulează", style: "cancel" as const },
+    ]);
+  };
+
   return (
-    <View style={styles.row}>
-      {(Object.keys(LABELS) as AppContext[]).map((context) => (
-        <TouchableOpacity
-          key={context}
-          style={[styles.option, activeContext === context && styles.optionActive]}
-          onPress={() => handlePress(context)}
-          hitSlop={4}
-        >
-          <Text style={[styles.text, activeContext === context && styles.textActive]}>
-            {LABELS[context]}
-          </Text>
-        </TouchableOpacity>
-      ))}
-    </View>
+    <TouchableOpacity style={styles.chip} onPress={openPicker} hitSlop={8}>
+      <Text style={styles.text}>{LABELS[activeContext]}</Text>
+      <Text style={styles.chevron}>▾</Text>
+    </TouchableOpacity>
   );
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: "row", backgroundColor: "#eee", borderRadius: 8, padding: 2 },
-  option: { paddingVertical: 4, paddingHorizontal: 10, borderRadius: 6 },
-  optionActive: { backgroundColor: "#1a73e8" },
-  text: { fontSize: 13, fontWeight: "600", color: "#333" },
-  textActive: { color: "#fff" },
+  chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#eaf1fd",
+    borderRadius: 16,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  text: { fontSize: 15, fontWeight: "600", color: "#1a73e8" },
+  chevron: { fontSize: 12, color: "#1a73e8" },
 });
