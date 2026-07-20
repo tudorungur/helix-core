@@ -44,7 +44,7 @@ const styles = StyleSheet.create({
   container: { flexGrow: 1, paddingBottom: 24 },
   brand: {
     fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
-    fontSize: 38,
+    fontSize: 32,
     fontWeight: "700",
     letterSpacing: 1,
     textAlign: "center",

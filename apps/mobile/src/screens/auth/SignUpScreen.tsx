@@ -241,7 +241,7 @@ export function SignUpScreen() {
         </>
       ) : (
         <>
-          <Text style={styles.sectionLabel}>Denumire</Text>
+          <Text style={styles.sectionLabel}>Denumire legală</Text>
           <TextInput
             style={styles.input}
             placeholder="Denumire"
