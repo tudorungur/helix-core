@@ -14,42 +14,20 @@ import { FormScreen } from "../../components/FormScreen";
 import { useContextStore } from "../../context/contextStore";
 
 type Role = "OWNER" | "TENANT";
-type LegalForm = "PF" | "PFA" | "II" | "IF" | "SRL" | "SA";
-type AccountType = "UNREGISTERED_INDIVIDUAL" | "REGISTERED_INDIVIDUAL" | "REGISTERED_COMPANY";
 
 const ROLES: { value: Role; label: string }[] = [
   { value: "OWNER", label: "Proprietar" },
   { value: "TENANT", label: "Chiriaș" },
 ];
 
-const LEGAL_FORMS: { value: LegalForm; label: string }[] = [
-  { value: "PF", label: "Persoană Fizică" },
-  { value: "PFA", label: "Persoană Fizică Autorizată (PFA)" },
-  { value: "II", label: "Întreprindere Individuală (II)" },
-  { value: "IF", label: "Întreprindere Familială (IF)" },
-  { value: "SRL", label: "Societate cu Răspundere Limitată (SRL)" },
-  { value: "SA", label: "Societate pe Acțiuni (SA)" },
-];
-
-function accountTypeFor(legalForm: LegalForm): AccountType {
-  if (legalForm === "PF") return "UNREGISTERED_INDIVIDUAL";
-  // PFA, II, IF — the three sibling forms under OUG 44/2008, none with legal personality, all
-  // CUI-bearing and taxed the same way; accounts.type doesn't distinguish them (Section 3.1).
-  // Naming is about fiscal registration, not the B2B/B2C tenancy shorthand — a REGISTERED_INDIVIDUAL
-  // landlord can rent to a company (B2B) just as freely as a REGISTERED_COMPANY one (Section 1).
-  if (legalForm === "PFA" || legalForm === "II" || legalForm === "IF") return "REGISTERED_INDIVIDUAL";
-  return "REGISTERED_COMPANY"; // SRL and SA — accounts.type doesn't distinguish them either
-}
-
-// Section 4.1/4.4 — landlord and tenant self-registration share this form, split by a role choice
-// up front. Both roles pick a legal form and give their name — either can genuinely be any of PF/
-// PFA/II/IF/SRL/SA — but neither answers any *fiscal* question here (CUI/CNP, legal_name, vat_payer,
-// invoice_series): none of it is needed yet at signup, and Legea 190/2018 art. 4 + GDPR data
-// minimization argue against gathering it speculatively. It's collected bilaterally, from both
-// sides, only once a tenancy actually gets created/linked (Section 4.4) — reached from inside the
-// app afterward (Proprietar: add a tenancy on a unit; Chiriaș: enter the resulting code), not during
-// sign-up. That in-app flow isn't built yet — property/unit CRUD (Section 4.3) doesn't exist yet
-// either, and a tenancy needs a unit to live on.
+// Section 4.1 — landlord and tenant self-registration share this form, split by a role choice, plus
+// the person's own name. Neither role answers a legal-form or *fiscal* question here (CUI/CNP,
+// legal_name, vat_payer, invoice_series) — that moved out of signup entirely: for Proprietar it's
+// asked per legal_entity, when adding a property that needs one (Section 4.3, "Firme" in
+// Portofoliu); for Chiriaș it's asked per tenancy, when linking one (Section 4.4). A single
+// signup-time choice was wrong in the first place — the same person can act through different legal
+// forms in different contexts (e.g. renting their own apartment as themselves, but representing a
+// company as a Chiriaș elsewhere).
 export function SignUpScreen() {
   const [step, setStep] = useState<"form" | "confirm">("form");
   const [cognitoUser, setCognitoUser] = useState<CognitoUser | null>(null);
@@ -59,10 +37,8 @@ export function SignUpScreen() {
   const [confirmPassword, setConfirmPassword] = useState("");
   // null = not yet answered — a role this consequential shouldn't have a silent default either.
   const [role, setRole] = useState<Role | null>(null);
-  const [legalForm, setLegalForm] = useState<LegalForm>("PF");
   const [nume, setNume] = useState("");
   const [prenume, setPrenume] = useState("");
-  const [denumire, setDenumire] = useState("");
 
   const [code, setCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -71,15 +47,11 @@ export function SignUpScreen() {
   const signIn = useAuthStore((state) => state.signIn);
   const setAvailableContexts = useContextStore((state) => state.setAvailableContexts);
 
-  const isPersonalForm = legalForm === "PF";
-
   const passwordsMatch = password.length > 0 && password === confirmPassword;
   const roleValid = role !== null;
-  const numeValid = !isPersonalForm || nume.trim().length > 0;
-  const prenumeValid = !isPersonalForm || prenume.trim().length > 0;
-  const denumireValid = isPersonalForm || denumire.trim().length > 0;
-  const formValid =
-    email.trim().length > 0 && passwordsMatch && roleValid && numeValid && prenumeValid && denumireValid;
+  const numeValid = nume.trim().length > 0;
+  const prenumeValid = prenume.trim().length > 0;
+  const formValid = email.trim().length > 0 && passwordsMatch && roleValid && numeValid && prenumeValid;
 
   const handleCreateAccount = async () => {
     setError(null);
@@ -131,19 +103,15 @@ export function SignUpScreen() {
       // contextStore.ts for why this is a session-only guess, not real membership data.
       if (role) setAvailableContexts([role]);
 
-      // TODO(backend): no API exists yet — this is where the call goes once it does. OWNER: create
-      // `accounts(type, name)` + `account_membership(role=OWNER)` (Section 4.1) — fiscal fields
-      // (legal_name, cui_cnp, vat_payer, invoice_series) stay NULL until the first tenancy needs
-      // them (Section 4.4). TENANT: just a `users` row for now — they have no account/tenancy yet,
-      // that's created later when they add a tenancy via the association code from inside the app
-      // (Section 4.4, also not built yet). For now nothing filled in here is persisted past this log.
-      const name = isPersonalForm ? `${prenume.trim()} ${nume.trim()}`.trim() : denumire;
-      console.log("Pending user creation payload:", {
-        role,
-        legalForm,
-        name,
-        type: role === "OWNER" ? accountTypeFor(legalForm) : undefined,
-      });
+      // TODO(backend): no API exists yet — this is where the call goes once it does. OWNER:
+      // `users(name)` + create `accounts(name)` (name defaults to the person's own name — just a
+      // workspace label, Section 3.1) + `account_membership(role=OWNER)` — zero `legal_entities` yet,
+      // the first one gets created the first time it's needed (Section 4.3). TENANT: just a `users`
+      // row for now — they have no account/tenancy yet, that's created later when they add a tenancy
+      // via the association code from inside the app (Section 4.4, also not built yet). For now
+      // nothing filled in here is persisted past this log.
+      const name = `${prenume.trim()} ${nume.trim()}`.trim();
+      console.log("Pending user creation payload:", { role, name });
     } catch {
       // error state already set above
     } finally {
@@ -220,44 +188,9 @@ export function SignUpScreen() {
         ))}
       </View>
 
-      <Text style={styles.sectionLabel}>Entitate legală</Text>
-      <View style={styles.optionList}>
-        {LEGAL_FORMS.map(({ value, label }, index) => (
-          <TouchableOpacity
-            key={value}
-            style={[
-              styles.option,
-              index > 0 && styles.optionDivider,
-              legalForm === value && styles.optionSelected,
-            ]}
-            onPress={() => setLegalForm(value)}
-          >
-            <Text style={styles.optionText}>{label}</Text>
-            {legalForm === value ? <Text style={styles.optionCheck}>✓</Text> : null}
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      {isPersonalForm ? (
-        <>
-          <Text style={styles.sectionLabel}>Date personale</Text>
-          <TextInput style={styles.input} placeholder="Nume" value={nume} onChangeText={setNume} />
-          <TextInput style={styles.input} placeholder="Prenume" value={prenume} onChangeText={setPrenume} />
-        </>
-      ) : (
-        <>
-          <Text style={styles.sectionLabel}>Denumire entitate legală</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Denumire"
-            value={denumire}
-            onChangeText={setDenumire}
-          />
-          <Text style={styles.caption}>
-            CUI-ul sau alte date fiscale vor fi necesare la creearea sau adaugarea primei unitati inchiriate, nu la crearea contului.
-          </Text>
-        </>
-      )}
+      <Text style={styles.sectionLabel}>Date personale</Text>
+      <TextInput style={styles.input} placeholder="Nume" value={nume} onChangeText={setNume} />
+      <TextInput style={styles.input} placeholder="Prenume" value={prenume} onChangeText={setPrenume} />
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <TouchableOpacity
@@ -299,10 +232,4 @@ const styles = StyleSheet.create({
   choiceOptionSelected: { backgroundColor: "#1a73e8" },
   choiceOptionText: { color: "#1a73e8", fontWeight: "600" },
   choiceOptionTextSelected: { color: "#fff" },
-  optionList: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, overflow: "hidden" },
-  option: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 12 },
-  optionDivider: { borderTopWidth: 1, borderTopColor: "#ccc" },
-  optionSelected: { backgroundColor: "#eaf1fd" },
-  optionText: { flex: 1 },
-  optionCheck: { color: "#1a73e8", fontWeight: "700", fontSize: 16 },
 });

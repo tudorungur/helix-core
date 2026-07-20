@@ -17,7 +17,10 @@ import {
 
 // ---------- Enums ----------
 
-export const accountType = pgEnum("account_type", [
+// SQL type name stays "account_type" — same 3 values as before, just referenced from legalEntities
+// now instead of accounts (Section 3.1); not a semantic rename, so keeping the DB identifier avoids
+// drizzle-kit's ambiguous rename-vs-recreate prompt for an unchanged enum.
+export const legalEntityType = pgEnum("account_type", [
   "REGISTERED_INDIVIDUAL",
   "REGISTERED_COMPANY",
   "UNREGISTERED_INDIVIDUAL",
@@ -27,7 +30,17 @@ export const membershipRole = pgEnum("membership_role", [
   "COLLABORATOR",
   "ACCOUNTANT_READONLY",
 ]);
-export const propertyType = pgEnum("property_type", ["apartment_building", "house"]);
+// Shared by both properties.type and units.type (Section 3.1) — one taxonomy across the app, not
+// two overlapping ones. A property's type is asked at property-creation time (before any unit
+// exists); a mixed-use property can still hold units of a different sub-type than the property
+// itself (e.g. an APARTMENT-type property with a ground-floor RETAIL unit).
+export const unitType = pgEnum("unit_type", [
+  "APARTMENT",
+  "HOUSE",
+  "RETAIL",
+  "WAREHOUSE",
+  "OFFICE",
+]);
 export const utilityType = pgEnum("utility_type", [
   "COLD_WATER",
   "HOT_WATER",
@@ -90,17 +103,30 @@ export const users = pgTable("users", {
 
 export const accounts = pgTable("accounts", {
   id: uuid("id").primaryKey().defaultRandom(),
+  // Just a workspace/display label (defaults to the owner's own name at signup, renamable later) —
+  // no fiscal identity lives here anymore, see legalEntities below.
   name: varchar("name", { length: 200 }).notNull(),
-  type: accountType("type").notNull(),
+  createdBy: uuid("created_by").references(() => users.id),
+});
+
+// A fiscal identity an account can invoice/be invoiced under — a Persoană Fizică identity (CNP-based)
+// or a specific registered business (PFA/II/IF/SRL/SA, CUI-based). One account can hold multiple —
+// e.g. renting one property as a Persoană Fizică and another through an SRL. Each property picks
+// exactly one, which decides that property's e-Factura eligibility, not the account as a whole.
+export const legalEntities = pgTable("legal_entities", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  accountId: uuid("account_id").notNull().references(() => accounts.id),
+  type: legalEntityType("type").notNull(),
   legalName: varchar("legal_name", { length: 200 }),
   // A CNP identifies exactly one person and a CUI exactly one company — either should back at
-  // most one account on the platform, so this is a real key, not just an identifier.
+  // most one legal entity on the platform, so this is a real key, not just an identifier. Collected
+  // immediately for business types (at property-add time, no purpose without it); deferred to the
+  // entity's first tenancy for UNREGISTERED_INDIVIDUAL (CNP is specially-protected personal data).
   cuiCnp: varchar("cui_cnp", { length: 20 }).unique(),
   vatPayer: boolean("vat_payer").notNull().default(false),
   invoiceSeries: varchar("invoice_series", { length: 10 }),
   invoiceNextNumber: integer("invoice_next_number").notNull().default(1),
   anafOauthStatus: varchar("anaf_oauth_status", { length: 30 }),
-  createdBy: uuid("created_by").references(() => users.id),
 });
 
 export const accountMemberships = pgTable("account_memberships", {
@@ -117,17 +143,33 @@ export const accountMembershipScopes = pgTable("account_membership_scopes", {
   unitId: uuid("unit_id").references(() => units.id),
 });
 
+// Just the building — an address container. No type, no legal entity: a single property can hold
+// units of different types and different legal entities (Section 3.1's note on units below).
 export const properties = pgTable("properties", {
   id: uuid("id").primaryKey().defaultRandom(),
   accountId: uuid("account_id").notNull().references(() => accounts.id),
-  address: text("address").notNull(),
-  type: propertyType("type").notNull(),
+  streetNumber: varchar("street_number", { length: 20 }).notNull(),
+  street: varchar("street", { length: 200 }).notNull(),
+  addressLine2: varchar("address_line2", { length: 200 }), // bloc/scară/etaj/ap., optional
+  postalCode: varchar("postal_code", { length: 10 }).notNull(),
+  city: varchar("city", { length: 100 }).notNull(),
+  county: varchar("county", { length: 100 }).notNull(),
+  // Deactivating hides a property (and its units) from new-tenancy eligibility without deleting
+  // it — distinct from an actual delete (Section 4.3).
+  active: boolean("active").notNull().default(true),
 });
 
+// The actual rentable/invoiceable thing — carries both its type (asked here, not on the building)
+// and which legal entity it's invoiced under (also here, not on the building): a single building can
+// have units of different types and, since one account can hold multiple legal_entities (Section
+// 3.1), units billed under different fiscal identities too (e.g. one apartment rented as a Persoană
+// Fizică, another through an SRL, in the same building).
 export const units = pgTable("units", {
   id: uuid("id").primaryKey().defaultRandom(),
   propertyId: uuid("property_id").notNull().references(() => properties.id),
+  legalEntityId: uuid("legal_entity_id").notNull().references(() => legalEntities.id),
   label: varchar("label", { length: 100 }).notNull(),
+  type: unitType("type").notNull(),
   areaSqm: numeric("area_sqm"),
   rooms: integer("rooms"),
 });
@@ -206,7 +248,9 @@ export const meterReadings = pgTable("meter_readings", {
 
 export const invoices = pgTable("invoices", {
   id: uuid("id").primaryKey().defaultRandom(),
-  accountId: uuid("account_id").notNull().references(() => accounts.id),
+  // Which fiscal identity issues it (series/numbering, Section 4.6) — not accounts.id, since an
+  // account can hold multiple legal entities each with their own invoice series.
+  legalEntityId: uuid("legal_entity_id").notNull().references(() => legalEntities.id),
   tenancyId: uuid("tenancy_id").notNull().references(() => tenancies.id),
   period: varchar("period", { length: 7 }).notNull(),
   invoiceType: invoiceType("invoice_type").notNull(),

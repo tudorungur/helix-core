@@ -17,10 +17,12 @@ Covers four types of contractual relationship on the same platform:
 
 These four labels are informal shorthand, not stored as their own value anywhere: whether a tenancy is
 "B2B" vs "B2C" (or "C2B" vs "C2C") is entirely a function of whether the tenant is a company or an
-individual (`tenancies.tenant_type`, Section 3.1) — the landlord's own legal form (SRL vs PFA, both
-`REGISTERED_ANAF`-capable; see `accounts.type`, Section 3.1) doesn't change e-Factura behavior at all, so it
-doesn't change the label either. A PFA renting to a company is B2B, exactly like an SRL renting to a
-company.
+individual (`tenancies.tenant_type`, Section 3.1) — the legal form of the `legal_entity` that owns the
+unit (SRL vs PFA, both `REGISTERED_ANAF`-capable; see `legal_entities.type`, Section 3.1) doesn't change
+e-Factura behavior at all, so it doesn't change the label either. A PFA renting to a company is B2B,
+exactly like an SRL renting to a company. An owner can hold multiple `legal_entities` (e.g. renting one
+unit as a Persoană Fizică and another — even in the same building — through an SRL) — the label is decided
+per-unit, by whichever legal entity that unit belongs to, not by the owner's `account` as a whole.
 
 ### 1.1 Problem statement & value proposition (per contract type)
 
@@ -72,28 +74,43 @@ users (Cognito sub) ──┬── account_memberships ──> accounts ──>
 ### 3.1 Core entities
 
 - **users** — `id (cognito_sub)`, `email`, `phone`, `name`. Holds no roles.
-- **accounts** — a landlord's portfolio (individual/sole trader/SRL).
-  `id`, `name`, `type [REGISTERED_INDIVIDUAL|REGISTERED_COMPANY|UNREGISTERED_INDIVIDUAL]`, `legal_name`,
-  `cui_cnp` (**unique**), `vat_payer bool`, `invoice_series`, `invoice_next_number`, `anaf_oauth_status`,
-  `created_by`. `cui_cnp` being unique is what makes the owner+collaborators model work: a CNP identifies
-  exactly one person and a CUI exactly one company, so it's the real key tying an `account` together — the
-  owner and every collaborator they invite (Section 4.2) sign up under their *own* email but all land on
-  `account_membership` rows against the same `account`, found via that CUI/CNP.
+- **accounts** — the owner's workspace/portfolio container — collaborators (Section 4.2) and properties are
+  scoped to this, but it carries no fiscal identity of its own anymore (see `legal_entities` below for why).
+  `id`, `name` (defaults to the creating user's own name at signup, Section 4.1 — just a display label,
+  renamable later, not a registered legal name), `created_by`.
+- **legal_entities** — a fiscal identity an `account` can invoice/be invoiced under — a Persoană Fizică
+  identity (CNP-based) or a specific registered business (PFA/II/IF/SRL/SA, CUI-based). One `account` can
+  hold **multiple** `legal_entities` — e.g. an owner renting one unit under their own name and another
+  through an SRL, or holding two separate SRLs for liability separation. Each `unit` (below) belongs to
+  exactly one `legal_entity`, which is what actually decides that unit's e-Factura eligibility and
+  contract-type options — not the `property` it's in, and not the `account` as a whole (Section 1's note
+  above). A single building (`property`) can have units billed under *different* legal entities.
+  `id`, `account_id`, `type [REGISTERED_INDIVIDUAL|REGISTERED_COMPANY|UNREGISTERED_INDIVIDUAL]`, `legal_name`,
+  `cui_cnp` (**unique**), `vat_payer bool`, `invoice_series`, `invoice_next_number`, `anaf_oauth_status`.
+  `cui_cnp` being unique is what makes the owner+collaborators model work: a CNP identifies exactly one
+  person and a CUI exactly one company, so it's the real key tying an `account` together — the owner and
+  every collaborator they invite (Section 4.2) sign up under their *own* email but all land on
+  `account_membership` rows against the same `account`, found via a CUI/CNP that already backs one of that
+  account's `legal_entities`.
   Named for fiscal registration status, deliberately *not* reusing the informal B2B/B2C/C2B/C2C shorthand
   above — that labels the *tenancy* (Section 1), and is a function of `tenancies.tenant_type`, completely
-  independent of this field (a `REGISTERED_INDIVIDUAL` landlord renting to a company is B2B, exactly like a
-  `REGISTERED_COMPANY` landlord renting to a company — see Section 1's note). `type` gates which
-  `tenancies.contract_type` values the account can use: `REGISTERED_INDIVIDUAL` (PFA, II, or IF — the three
-  sibling individual forms under OUG 44/2008, none with legal personality, all CUI-bearing, taxed the same
-  way) and `REGISTERED_COMPANY` (SRL or SA, has a CUI — both map to the same `type`, distinguished only by
-  `legal_name`) both issue e-Factura → `REGISTERED_ANAF` tenancies only.
-  `UNREGISTERED_INDIVIDUAL` (a plain individual, no CUI, no PFA registration) can't issue e-Factura at all
-  → only `C2B_WITHHOLDING` or `UNREGISTERED_C2C` tenancies (Section 1's C2B/C2C rows — "Landlord as an
-  individual"). Only `name` and `type` are set at account creation (Section 4.1) — `legal_name`, `cui_cnp`,
-  `vat_payer`, and `invoice_series` all start `NULL`/default and are filled in **once**, bilaterally, the
-  first time the account gets a `tenancy` (Section 4.4), not speculatively at signup: none of it is legally
-  required on an invoice to an individual, and Legea 190/2018 art. 4 plus GDPR data minimization
-  (Art. 5(1)(c)) argue against gathering it before it's actually needed.
+  independent of this field (a `REGISTERED_INDIVIDUAL` legal entity renting to a company is B2B, exactly like
+  a `REGISTERED_COMPANY` one renting to a company — see Section 1's note). `type` gates which
+  `tenancies.contract_type` values a unit under this legal entity can use: `REGISTERED_INDIVIDUAL` (PFA,
+  II, or IF — the three sibling individual forms under OUG 44/2008, none with legal personality, all
+  CUI-bearing, taxed the same way) and `REGISTERED_COMPANY` (SRL or SA, has a CUI — both map to the same
+  `type`, distinguished only by `legal_name`) both issue e-Factura → `REGISTERED_ANAF` tenancies only.
+  `UNREGISTERED_INDIVIDUAL` (a plain individual, no CUI, no PFA registration) can't issue e-Factura at all →
+  only `C2B_WITHHOLDING` or `UNREGISTERED_C2C` tenancies (Section 1's C2B/C2C rows — "Landlord as an
+  individual").
+  **Collection timing differs by type** (Section 4.3): creating a `REGISTERED_INDIVIDUAL`/`REGISTERED_COMPANY`
+  legal entity (i.e. picking a business legal form) collects `cui_cnp` (checksum-validated CUI), `legal_name`,
+  `vat_payer`, and `invoice_series` **immediately**, at the point the owner is adding the first unit under
+  it — a CUI isn't specially-protected personal data, and by that point creating the entity has no purpose
+  without it. Creating an `UNREGISTERED_INDIVIDUAL` legal entity only collects a display name — `cui_cnp`
+  (the person's CNP, specially-protected personal data under Legea 190/2018) stays `NULL` and is deferred to
+  the entity's first `tenancy` (Section 4.4), same data-minimization rationale as before (Legea 190/2018
+  art. 4 + GDPR Art. 5(1)(c)), just scoped to the `legal_entity` instead of the `account`.
 - **account_memberships** — links a user to an account with a role.
   `id`, `account_id`, `user_id`, `role [OWNER|COLLABORATOR|ACCOUNTANT_READONLY]`.
   - `OWNER` → full implicit access, no scope needed.
@@ -101,8 +118,17 @@ users (Cognito sub) ──┬── account_memberships ──> accounts ──>
     means no access at all (not "full access by default").
 - **account_membership_scopes** — `membership_id`, `property_id NULL`, `unit_id NULL`. One row per
   property/unit explicitly assigned to a collaborator.
-- **properties** — `id`, `account_id`, `address`, `type [apartment_building|house]`.
-- **units** — `id`, `property_id`, `label`, `area_sqm`, `rooms`.
+- **properties** — just the building — an address container, nothing more. `id`, `account_id`,
+  `street_number`, `street`, `address_line2 NULL` (bloc/scară/etaj/ap., optional), `postal_code`, `city`,
+  `county`, `active bool` (default `true`) — deactivating hides a property, and every unit under it, from
+  new-tenancy eligibility (Section 4.4) without deleting it; a genuine delete removes the row (and its
+  units) outright. No `type` and no `legal_entity_id` here — both belong on `units` (below), since a single
+  building can hold units of different types and different fiscal identities.
+- **units** — the actual rentable/invoiceable thing. `id`, `property_id`, `legal_entity_id`, `label`,
+  `type [APARTMENT|HOUSE|RETAIL|WAREHOUSE|OFFICE]`, `area_sqm`, `rooms`. `type` is asked here, not on the
+  building — a mixed-use property (e.g. a building with `APARTMENT` units and a ground-floor `RETAIL`
+  unit) is valid, and asking at property-creation time would be premature (the building itself has no
+  inherent type, only what's built or subdivided inside it does).
 - **unit_utilities** — utility configuration per unit (the toggles set when adding the property).
   `id`, `unit_id`, `utility_type [COLD_WATER|HOT_WATER|GAS|ELECTRICITY|INTERNET|TRASH|MAINTENANCE|OTHER]`,
   `enabled bool`, `tariff_basis [METER_INDEX|FIXED_COST|QUOTA_SHARE|PER_PERSON]`,
@@ -119,7 +145,7 @@ users (Cognito sub) ──┬── account_memberships ──> accounts ──>
   a different fiscal regime (SRL/PFA) and e-Factura, not C168, is the relevant mechanism. The app only
   tracks that registration happened (a confirmation checkbox + date) — it does not submit Form C168 itself.
   Also `tenant_type [INDIVIDUAL|COMPANY]` — the fact that actually drives the informal B2B/C2B (`COMPANY`)
-  vs B2C/C2C (`INDIVIDUAL`) label (Section 1), not `accounts.type`. Only when `tenant_type = COMPANY`:
+  vs B2C/C2C (`INDIVIDUAL`) label (Section 1), not `legal_entities.type`. Only when `tenant_type = COMPANY`:
   `tenant_company_name`, `tenant_company_cui` — the tenant-company's fiscal identity, needed to address
   the e-Factura (B2B) or to identify the paying company on the withholding statement (C2B); the individual
   linked via `tenancy_memberships` may just be an employee using the app on the company's behalf, not the
@@ -136,7 +162,8 @@ users (Cognito sub) ──┬── account_memberships ──> accounts ──>
   `id`, `unit_utility_id`, `tenancy_id`, `period (YYYY-MM)`, `photo_s3_key`, `ai_extracted_value`,
   `ai_confidence`, `confirmed_value`, `confirmed_by_user_id`,
   `status [PENDING_AI|PENDING_CONFIRMATION|CONFIRMED|REJECTED]`.
-- **invoices** — `id`, `account_id`, `tenancy_id`, `period`, `invoice_type [AUTO_EFACTURA|MANUAL_DECONT]`,
+- **invoices** — `id`, `legal_entity_id` (which fiscal identity issues it — determines `series`/numbering,
+  not the `account` as a whole), `tenancy_id`, `period`, `invoice_type [AUTO_EFACTURA|MANUAL_DECONT]`,
   `series`, `number`, `vat_amount`, `total_amount`, `status [DRAFT|ISSUED|SENT_ANAF|PAID|OVERDUE]`,
   `anaf_upload_id`, `pdf_s3_key`.
 - **invoice_lines** — `invoice_id`, `unit_utility_id NULL` (null for the rent line), `description`,
@@ -182,24 +209,23 @@ users (Cognito sub) ──┬── account_memberships ──> accounts ──>
 ## 4. Key flows
 
 ### 4.1 Landlord & tenant onboarding
-Cognito sign-up (email/password + email confirmation code) starts with a role choice — Proprietar (landlord)
-or Chiriaș (tenant) — then, **for both roles alike**, a legal-form picker: Persoană Fizică / PFA /
-Întreprindere Individuală / Întreprindere Familială / SRL / SA (either role can genuinely be any of these),
-plus a name — first/last name (`users.name`) for Persoană Fizică, or a simple `Denumire` for the rest. That's
-the entire form. **No association code and no fiscal data** (CUI/CNP, `legal_name`, `vat_payer`,
-`invoice_series`) is collected at signup for either role — none of it is needed yet, and Legea 190/2018
-art. 4 plus GDPR data minimization (Art. 5(1)(c)) argue against gathering it speculatively. It's collected
-**bilaterally**, from both sides, only when a `tenancy` actually gets created/linked (§4.4) — the first
-moment any of it is genuinely necessary, reached from *inside* the app afterward, not during sign-up.
+Cognito sign-up (email/password + email confirmation code) is just a role choice — Proprietar (landlord) or
+Chiriaș (tenant) — plus the person's own name (`users.name`, Nume + Prenume). That's the entire form: no
+legal form, no association code, and no fiscal data (CUI/CNP, `legal_name`, `vat_payer`, `invoice_series`) is
+collected at signup for either role — none of it is needed yet, and Legea 190/2018 art. 4 plus GDPR data
+minimization (Art. 5(1)(c)) argue against gathering it speculatively. **The legal-form question moves out of
+signup entirely for both roles**: for Proprietar it's asked per `legal_entity`, when adding a unit that
+needs one (§4.3); for Chiriaș it's asked per `tenancy`, when linking one (§4.4) — a person acting through
+different legal forms in different contexts (e.g. renting their own apartment as themselves, but linking a
+company-leased office as a Chiriaș for their employer) was exactly the reasoning that made a single
+signup-time choice wrong in the first place.
 
-For Proprietar, the legal-form choice also sets `accounts.type` (`UNREGISTERED_INDIVIDUAL` for Persoană
-Fizică, `REGISTERED_INDIVIDUAL` for PFA/II/IF, `REGISTERED_COMPANY` for SRL/SA — Section 3.1) and `Denumire`
-feeds `accounts.name` (*not* the officially-registered `legal_name`, which stays `NULL` until confirmed at
-first-tenancy time) — Cognito sign-up → create `accounts(type, name)` + `account_membership(role=OWNER)`.
-For Chiriaș, the same legal-form/name choice only feeds `users.name` — a tenant has no `account` at all, so
-nothing else is created at sign-up; a `tenancy_membership` comes later, from linking a tenancy (§4.4).
-Settings is where an owner's fiscal data eventually lives once captured (Section 5.1 nav), plus the ANAF
-OAuth connect (Section 4.8), which necessarily happens after both the account and its fiscal data exist.
+For Proprietar: Cognito sign-up → create `accounts(name)` (name defaults to the person's own name, just a
+workspace label — renamable later, not a registered legal name) + `account_membership(role=OWNER)`. No
+`legal_entity` is created at signup — the account starts with zero, and the first one gets created the first
+time it's needed (§4.3). For Chiriaș: the same role+name form only feeds `users.name` — a tenant has no
+`account` at all, so nothing else is created at sign-up; a `tenancy_membership` comes later, from linking a
+tenancy (§4.4).
 
 If the person already has an identity (e.g. an existing `tenancy_membership` as a tenant elsewhere — global
 identity, Section 3), no new Cognito sign-up happens: "Become a landlord" from within the app shows the same
@@ -211,27 +237,85 @@ both contexts.
 Owner invites by email → Cognito (`AdminCreateUser` or an acceptance link if the user already exists) →
 `account_membership(role=COLLABORATOR)` → UI for scope assignment (selecting properties/units).
 
-Because `accounts.cui_cnp` is unique (Section 3.1), entering a CUI (at first-tenancy time, §4.4 — not at
-signup, §4.1, where it's never collected) that already backs an `account` isn't allowed to silently create a
-duplicate: it's rejected and the person is pointed at asking the existing account's owner for a collaborator
-invite instead.
+Because `legal_entities.cui_cnp` is unique (Section 3.1), entering a CUI or CNP that already backs a
+`legal_entity` isn't allowed to silently create a duplicate under a different `account`: it's rejected and the
+person is pointed at asking the existing account's owner for a collaborator invite instead. For a business
+legal form this check fires when creating the `legal_entity` itself (§4.3, at unit-add time); for a
+Persoană Fizică legal entity, the CNP isn't collected until first-tenancy time (§4.4), so the check fires
+there instead.
 
 ### 4.3 Adding a property + unit
-Owner creates a `property` → `unit` → toggle list of utilities (cold/hot water, gas, electricity, internet,
-trash, maintenance) → for each active utility: tariff basis (index / fixed cost / quota share / per person) +
-unit price/fixed amount/percentage + **order in the photo-capture sequence**.
+Owner creates a `property` — just a building, structured address only (`street_number`, `street`,
+`address_line2` optional, `postal_code`, `city`, `county` — not a single free-text field) — then adds one
+or more `unit`s to it. Each `unit` is where the real decisions happen: its type (Apartament / Casă —
+locativ; Spațiu comercial / Halà-depozit / Birou — comercial) and which `legal_entity` it's billed under
+(Section 3.1 — a single building can hold units of different types *and* different legal entities). Then:
+toggle list of utilities (cold/hot water, gas, electricity, internet, trash, maintenance) → for each active
+utility: tariff basis (index / fixed cost / quota share / per person) + unit price/fixed amount/percentage +
+**order in the photo-capture sequence**.
 
-*Implementation status*: `OwnerTenanciesScreen` (mobile) currently does only a minimal slice of this —
-property address + unit label, no utility toggles — combined directly with tenancy creation (§4.4), just
-enough to exercise the association-code flow end-to-end. The utility-configuration UI above is still
-unbuilt.
+**Why type and legal entity live on the unit, not the building**: a property, by itself, has no inherent
+type — it's just an address; asking "locativ sau comercial?" before any unit exists inside it would be
+premature (and wrong for a mixed-use building). Same for the legal entity: since one account can hold
+multiple `legal_entities` (Section 3.1), and a single building can genuinely have units invoiced under
+different ones (e.g. one apartment as a Persoană Fizică, another through an SRL), the entity has to be a
+per-unit choice, not a per-building one.
+
+**Choosing/creating the legal entity (picked at unit-add time, but managed — created/edited/deleted —
+from Settings, §5.1, not from inside this flow)**: if the account already has one or more `legal_entities`,
+the owner picks one from a list when adding a unit; with zero, adding a unit is gated — the trigger is
+inert until at least one `legal_entity` exists (created from Settings). Creating a `legal_entity` asks the
+same legal-form picker signup used to ask (Persoană Fizică / PFA / Întreprindere Individuală / Întreprindere
+Familială / SRL / SA) plus a name. **What's collected next depends on the choice** (Section 3.1's
+collection-timing note): a business form (PFA/II/IF/SRL/SA) additionally requires CUI (checksum-validated,
+rejected as a duplicate per §4.2's rule above), confirmed `legal_name`, an explicit `vat_payer` Da/Nu choice
+(no silent default — same reasoning as the original per-account toggle), and `invoice_series` — all of it
+right away, since a CUI-bearing entity has no purpose without its CUI. Persoană Fizică only asks for a name
+— the CNP stays deferred to the entity's first `tenancy` (§4.4).
+
+**Property lifecycle**: a property can be **deactivated** (`active = false` — hides it and its units
+from new-tenancy eligibility, §4.4, without losing the record) or **deleted** outright (removes it and
+its units, with confirmation). A unit can also be deleted individually (confirmation, warns if it's
+currently rented), and so can a legal entity (confirmation, warns how many units currently reference it
+— deleting doesn't cascade-delete those units, they're left pointing at a removed entity, same as any
+other client-side mock with no backend integrity constraint). Properties, units, and legal entities are
+all editable after creation (address fields; label/type/legal entity; name/CUI/VAT/invoice series
+respectively) — **saving an edit (not a fresh add) always asks for confirmation first**, for the
+inevitable typo caught after the fact.
+
+*Implementation status*: `OwnerPortfolioScreen` (mobile, Portofoliu tab) does a minimal slice of this —
+**properties only now**: add/edit properties (structured address only, with delete/deactivate) and, under
+each, add/edit/delete units (label + type + legal entity, highlighted in its list while being edited).
+Legal entities themselves are **not** managed here at all — see `OwnerSettingsScreen` (§5.1, Setări tab)
+for that; this screen only reads `legalEntities` from `portfolioStore` to populate the unit form's picker.
+**No filtering of the property list** — an earlier attempt at "Tip"/legal-entity filter chips (and, later,
+a persistent cross-tab legal-entity header with its own select/collapse filter) was removed each time:
+filtering by legal entity hid a just-added property outright (it has no units yet, so it matched nothing),
+which read as a bug, not a feature; the persistent header also added complexity nobody wanted and squeezed
+the tab content below it. No utility toggles yet, no `area_sqm`/`rooms` yet. It's a
+separate screen from tenancy creation (§4.4) — a unit can exist here unrented indefinitely;
+`OwnerTenanciesScreen` picks from units on **active** properties added here rather than creating one
+inline — each eligible unit its own tile (same visual language as the property tiles above), not a
+shared box with divided rows. The utility-configuration UI above is still unbuilt. Neither screen
+repeats its tab name as an in-content title (Portofoliu/Închirieri) — AppStack's header already shows
+it; `OwnerTenanciesScreen`'s creation form is a centered dashed "+ Adaugă chirie" trigger (same
+expand/collapse pattern as Portofoliu's "+ Adaugă proprietate" and Setări's "+ Adaugă entitate
+legală") rather than always-visible, and its result/empty states use "chirie" throughout instead of
+the earlier English "tenancy" wording. **Created tenancies persist as their own tiles** —
+`portfolioStore`'s `tenancies`/`addTenancy` (previously the created tenancy and its
+`association_code` only flashed on a one-off "result" screen and were gone for good once you
+navigated away or created another; `addTenancy` now both stores the `Tenancy` and flips the unit out
+of the available pool in one update). Each tile shows the unit + property address, rent amount/
+currency, start date, and the `association_code` — always accessible, not a one-time reveal. No
+edit/delete on a tenancy yet (properties/units/legal entities all have it; tenancies don't, since
+deleting one would need to decide whether the unit becomes available again — not decided yet).
 
 ### 4.4 Associating a tenant & tenancy
 Both directions start from *inside* the app (mobile, not at sign-up — §4.1 no longer asks for any code):
 
-- **Owner**: from the Tenancies tab, adds a tenancy on a `unit`. The app generates a short
-  `association_code` instead of sending an email/SMS invite, shown to the owner to pass along however they
-  like.
+- **Owner**: from the Tenancies tab, picks an unrented `unit` from their Portfolio (§4.3) and adds a tenancy
+  on it. The app generates a short `association_code` instead of sending an email/SMS invite, shown to the
+  owner to pass along however they like.
 - **Tenant**: from the Tenancies tab, enters that code. If they don't have an identity yet, they hit the
   minimal Cognito sign-up form first (§4.1, role = Chiriaș) — same "existing identity" pattern as "Become a
   landlord" applies if they already do (no new Cognito sign-up, just a new `tenancy_membership` on their
@@ -239,29 +323,35 @@ Both directions start from *inside* the app (mobile, not at sign-up — §4.1 no
 
 *Implementation status*: `OwnerTenanciesScreen`/`TenantTenanciesScreen` (mobile) exercise the code
 generation + entry mechanics end-to-end (client-side only — no backend to actually resolve a code to a
-tenancy yet, matches §4.1's TODO pattern). **The bilateral fiscal-collection step below is not built yet** —
-next up.
+tenancy yet, matches §4.1's TODO pattern). If the owner's Portfolio has no unrented unit, the screen sends
+them to the Portofoliu tab instead of creating one inline — property/unit creation lives only in §4.3 now.
+**The bilateral fiscal-collection step below is not built yet** — next up.
 
 **Fiscal data is collected bilaterally right here, once the code resolves — this is the first point any of
-it is actually needed, per §4.1's data-minimization rationale:**
+it is actually needed for the tenant side (owner side may already be done, see below), per §4.1's
+data-minimization rationale:**
 
-- **Tenant side**: the same legal-form picker as §4.1, defaulting to whatever they picked at their own
-  sign-up but confirmable/changeable per tenancy (a tenant linking a *second* tenancy might be acting on a
-  *different* company's behalf than their first). Persoană Fizică → `tenant_type = INDIVIDUAL`, no other
-  field (`tenancies` has no per-tenant CNP anywhere in the schema — see Section 3.1 for why). Any other
-  choice → `tenant_type = COMPANY` + `tenant_company_name`/`tenant_company_cui` (checksum-validated CUI).
-  Those two fields live on the `tenancy`, not the user, which is exactly why a second tenancy re-enters them.
-  Unlike `accounts.cui_cnp`, `tenancies.tenant_company_cui` is **not** unique — the same company can
-  legitimately rent multiple units, or the tenancy might be entered by an employee acting on the company's
-  behalf without owning the CUI.
-- **Owner side**: only asked if `accounts.cui_cnp`/`legal_name` are still `NULL` (i.e. this is the account's
-  first tenancy) — fills in the fiscal data matching the `accounts.type` already fixed at signup (Persoană
-  Fizică accounts get CNP; PFA/II/IF/SRL/SA accounts get the confirmed `legal_name` + checksum-validated CUI,
-  unique per Section 3.1), plus `vat_payer` and `invoice_series` if the type issues e-Factura. All four are
-  **account-level, asked once** — subsequent tenancies on the same account don't ask again.
+- **Tenant side**: the same legal-form picker §4.1 used to ask — no signup default to fall back on anymore
+  (§4.1), so it's picked fresh every time, confirmable/changeable per tenancy (a tenant linking a *second*
+  tenancy might be acting on a *different* company's behalf than their first). Persoană Fizică →
+  `tenant_type = INDIVIDUAL`, no other field (`tenancies` has no per-tenant CNP anywhere in the schema — see
+  Section 3.1 for why). Any other choice → `tenant_type = COMPANY` + `tenant_company_name`/
+  `tenant_company_cui` (checksum-validated CUI). Those two fields live on the `tenancy`, not the user, which
+  is exactly why a second tenancy re-enters them. Unlike `legal_entities.cui_cnp`, `tenancies.tenant_company_cui`
+  is **not** unique — the same company can legitimately rent multiple units, or the tenancy might be entered
+  by an employee acting on the company's behalf without owning the CUI.
+- **Owner side**: for a business `legal_entity` (PFA/II/IF/SRL/SA), `cui_cnp`/`legal_name`/`vat_payer`/
+  `invoice_series` were already collected when that legal entity was created (§4.3, at unit-add time) —
+  nothing to ask here. For a Persoană Fizică `legal_entity`, this is the first genuine trigger to collect its
+  `cui_cnp` (the CNP) — only asked if still `NULL` (i.e. this is that legal entity's first tenancy).
+  Either way it's **per-`legal_entity`, asked at most once** — a second tenancy under the same legal entity
+  never asks again, but a tenancy under a *different* legal entity on the same account might, if that one's
+  fiscal data isn't filled in yet.
 - `contract_type` (`REGISTERED_ANAF`/`C2B_WITHHOLDING`/`UNREGISTERED_C2C`) is then derived automatically
-  from the resulting `accounts.type` × `tenant_type` combination — the app never asks "is this B2B/B2C/C2B/
-  C2C?" as a literal question (Section 1's note: those labels aren't stored as their own value anywhere).
+  from the resulting `legal_entities.type` (of the tenancy's unit's legal entity — directly, since the
+  legal entity is a unit-level field, Section 3.1) × `tenant_type` combination — the app never asks "is
+  this B2B/B2C/C2B/C2C?" as a literal question (Section 1's note: those labels aren't stored as their own
+  value anywhere).
 
 `tenancy_membership` is created once all of the above resolves; `association_code` is cleared on the
 `tenancy` once claimed.
@@ -280,7 +370,8 @@ reminder is shown but framed as optional. The app never submits Form C168 itself
    in the sequence.
 
 ### 4.6 Invoice generation (monthly, Step Functions)
-For each `account`, at the end of the billing cycle:
+For each `legal_entity` (invoice series/numbering and ANAF OAuth are per-legal-entity, not per-account — an
+account with multiple legal entities runs this independently for each), at the end of the billing cycle:
 1. Collect the period's confirmed `meter_readings` for each `tenancy`.
 2. **Rent line**: if `tenancy.rent_currency = EUR`, look up `bnr_exchange_rates` for the last published rate
    dated strictly before the invoice issuance date (skips weekends/bank holidays — BNR does not publish on
@@ -292,7 +383,7 @@ For each `account`, at the end of the billing cycle:
    unit_price`; fixed → `fixed_amount`; quota → `shared_meter_total × quota_percentage`; per person →
    `cost × number_of_occupants`.
 4. If `tenancy.contract_type = REGISTERED_ANAF` (B2B/B2C): generate UBL/CII XML, submit to ANAF via the
-   account's OAuth token (SPV), store `anaf_upload_id`, generate a PDF, `status = SENT_ANAF`.
+   issuing legal entity's OAuth token (SPV), store `anaf_upload_id`, generate a PDF, `status = SENT_ANAF`.
 5. If `contract_type = UNREGISTERED_C2C`: generate only an "expense statement" PDF (no ANAF submission),
    `status = ISSUED`, awaiting manual payment marking by the landlord.
 
@@ -306,10 +397,11 @@ never calls BNR synchronously.
 - Online (Netopia): the tenant pays via hosted checkout → Netopia webhook → `payment(method=NETOPIA_CARD)`
   → `invoice.status = PAID`. The application never stores card data (minimal PCI scope, SAQ-A).
 
-### 4.8 Connecting ANAF SPV (per account)
-Settings → "Connect ANAF" → redirect to the SPV authorize endpoint → callback Lambda exchanges the `code`
-for an `access_token`/`refresh_token` → encrypted storage (Secrets Manager / KMS-encrypted column) →
-scheduled Lambda refreshes the token before expiry.
+### 4.8 Connecting ANAF SPV (per legal entity)
+Settings → pick a `legal_entity` → "Connect ANAF" → redirect to the SPV authorize endpoint → callback Lambda
+exchanges the `code` for an `access_token`/`refresh_token` → encrypted storage (Secrets Manager /
+KMS-encrypted column) → scheduled Lambda refreshes the token before expiry. An account with multiple
+CUI-bearing legal entities connects each separately — ANAF SPV access is granted per-CUI, not per-account.
 
 ### 4.9 Maintenance ticket lifecycle (Phase 3)
 1. Tenant opens "Report an issue" on a `tenancy` → title + description + optional photo (same presigned-S3
@@ -384,19 +476,39 @@ RootNavigator
 │       existing account_membership or tenancy_membership)
 │
 └── AppStack (authenticated — Cognito session present)
-    │   headerLeft: a compact Proprietar/Chiriaș toggle (not a separate screen) — always shows both,
-    │   even if the user only has one context; tapping the one they have switches the tabs below
-    │   (no navigation/push involved), tapping the one they don't prompts to activate it
-    │   ("Become a landlord" / link a tenancy via association code — §4.1/§4.4)
+    │   Single header, shared by both tab sets below: a compact Proprietar/Chiriaș dropdown chip
+    │   (headerLeft, not a separate screen) — always shows both, even if the user only has one
+    │   context; tapping the one they have switches the tabs below (no navigation/push involved),
+    │   tapping the one they don't prompts to activate it ("Become a landlord" / link a tenancy via
+    │   association code — §4.1/§4.4). Center title tracks whichever tab is currently focused.
     │
-    ├── OwnerTabs (visible when the active context is an account_membership)
-    │   ├── Portfolio (properties → units, add/edit, utility toggles + tariff config)
-    │   ├── Collaborators (invite, assign property/unit scope)
-    │   ├── Tenancies (create tenancy, invite tenant, contract type; per-tenancy deposit collection,
-    │   │   move-in/move-out photos, retain/return decision — Section 4.11, Phase 3)
+    ├── OwnerTabs (visible when the active context is an account_membership) — 5 self-contained tabs,
+    │   │ kept at the usual bottom-bar limit; Collaborators (§4.2: invite, assign property/unit scope)
+    │   │ isn't its own tab, it folds into Settings (an administrative action, same category as fiscal
+    │   │ data/ANAF/Netopia config). No persistent cross-tab header above them — an earlier
+    │   │ `LegalEntityHeader` tried that (legal entities added/edited/deleted from a bar shown on all
+    │   │ 5 tabs, with a select-to-collapse "filter" and a small ▾ arrow to get back to the full
+    │   │ list) and was removed: extra complexity nobody wanted, plus real risk of squeezing the
+    │   │ Tab.Navigator's own layout (it caused a blank-screen bug once). Legal entities now live only
+    │   │ in Settings, a normal tab screen like any other.
+    │   ├── Portfolio (properties (buildings) → units, add/edit, utility toggles + tariff config —
+    │   │   §4.3; properties only — each unit picks its own type and legal entity, not the building,
+    │   │   and legal entities themselves are managed from Settings, not from this screen)
+    │   ├── Tenancies (pick an unrented unit from Portfolio, create tenancy, invite tenant, contract
+    │   │   type; per-tenancy deposit collection, move-in/move-out photos, retain/return decision —
+    │   │   Section 4.11, Phase 3)
     │   ├── Invoices (list, status, ANAF submission state, mark-paid action)
     │   ├── Maintenance (ticket list per unit, status updates, comment thread — Section 4.9, Phase 3)
-    │   └── Settings (fiscal data, invoice series/VAT, ANAF connect, Netopia config)
+    │   └── Settings — `OwnerSettingsScreen`: add/edit/delete legal entities, each its own tile (same
+    │       visual language as Portofoliu's property tiles — a separate bordered card per entity, not
+    │       one shared box with divided rows). Editing happens **in place, in that same tile** (same
+    │       pattern as units in Portofoliu) — tapping Editează turns that entity's own card into the
+    │       form, rather than opening a detached form elsewhere on the screen; a new entity still adds
+    │       via the trigger at the top, since there's no existing tile to expand in place for one.
+    │       Business forms collect CUI/VAT/invoice series right away, duplicate CUI against another of
+    │       the account's own legal entities rejected inline; Persoană Fizică just a name, CNP deferred
+    │       to first tenancy (§4.4). Plus (not yet built)
+    │       per-legal-entity invoice series/VAT/ANAF connect, Netopia config, Collaborators
     │
     └── TenantTabs (visible when the active context is a tenancy_membership)
         ├── MyTenancies (units rented, possibly across different landlords; per-tenancy deposit status,
@@ -652,7 +764,7 @@ eu-west-1), one state path per environment — the bucket/table themselves are p
 - Step Functions for the monthly billing cycle.
 
 ### Phase 2 — ANAF live
-- SPV OAuth per account, automatic e-Factura submission for B2B/B2C (UBL/CII XML).
+- SPV OAuth per legal entity, automatic e-Factura submission for B2B/B2C (UBL/CII XML).
 - Formalized "expense statement" flow for C2C (no ANAF submission).
 
 ### Phase 3 — Online payments & extras

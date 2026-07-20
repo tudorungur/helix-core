@@ -5,6 +5,11 @@ import { StyleSheet } from "react-native";
 // use this instead of redefining the same styles a third and fourth time.
 export const formStyles = StyleSheet.create({
   container: { padding: 24, paddingTop: 32, gap: 12 },
+  // Overrides container's paddingTop for screens mounted directly under AppStack's fixed header
+  // (ContextTitle/SignOutButton chips) — Owner tab roots (Portofoliu, Setări, Închirieri). 32 was
+  // sized for auth screens with no header above them; right under the fixed header it read as too
+  // much empty space before the first section title.
+  containerCompactTop: { paddingTop: 12 },
   input: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12 },
   button: { backgroundColor: "#1a73e8", borderRadius: 8, padding: 14, alignItems: "center", marginTop: 8 },
   buttonDisabled: { opacity: 0.5 },
@@ -31,4 +36,17 @@ export const formStyles = StyleSheet.create({
   choiceOptionSelected: { backgroundColor: "#1a73e8" },
   choiceOptionText: { color: "#1a73e8", fontWeight: "600" },
   choiceOptionTextSelected: { color: "#fff" },
+  // A centered, delimited "+ Adaugă X" trigger — its own bordered section, not a plain inline text
+  // link. Used wherever an "add" action needs to read as a distinct block (Portofoliu's Adaugă
+  // proprietate, Setări's Adaugă entitate legală).
+  sectionTrigger: {
+    borderWidth: 1,
+    borderColor: "#1a73e8",
+    borderStyle: "dashed",
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: "center",
+    marginTop: 8,
+  },
+  sectionTriggerText: { color: "#1a73e8", fontWeight: "600" },
 });

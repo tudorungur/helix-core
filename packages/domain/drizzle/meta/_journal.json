@@ -29,6 +29,27 @@
       "when": 1784144629972,
       "tag": "0003_misty_rafael_vega",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1784552993843,
+      "tag": "0004_tricky_patriot",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1784553873091,
+      "tag": "0005_panoramic_dark_beast",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784555832016,
+      "tag": "0006_brave_dakota_north",
+      "breakpoints": true
     }
   ]
 }
