@@ -42,3 +42,9 @@ variable "max_capacity" {
   type        = number
   default     = 2
 }
+
+variable "seconds_until_auto_pause" {
+  description = "Idle time before the cluster auto-pauses to 0 ACU (only takes effect when min_capacity = 0). Null disables auto-pause."
+  type        = number
+  default     = null
+}

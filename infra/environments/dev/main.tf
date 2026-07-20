@@ -14,6 +14,7 @@ module "database" {
   lambda_security_group_id = module.network.lambda_security_group_id
   min_capacity             = var.aurora_min_capacity
   max_capacity             = var.aurora_max_capacity
+  seconds_until_auto_pause = var.aurora_seconds_until_auto_pause
 }
 
 module "auth" {
