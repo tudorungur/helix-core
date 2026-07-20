@@ -1,0 +1,1 @@
+ALTER TABLE "tenancies" ADD COLUMN "association_code" varchar(12);

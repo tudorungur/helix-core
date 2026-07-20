@@ -11,10 +11,15 @@ import { CognitoUser, CognitoUserAttribute } from "amazon-cognito-identity-js";
 
 import { useAuthStore, userPool } from "../../auth/authStore";
 import { FormScreen } from "../../components/FormScreen";
-import { validateCNP, validateCUI } from "../../validators/romanianFiscalId";
 
+type Role = "OWNER" | "TENANT";
 type LegalForm = "PF" | "PFA" | "II" | "IF" | "SRL" | "SA";
 type AccountType = "UNREGISTERED_INDIVIDUAL" | "REGISTERED_INDIVIDUAL" | "REGISTERED_COMPANY";
+
+const ROLES: { value: Role; label: string }[] = [
+  { value: "OWNER", label: "Proprietar" },
+  { value: "TENANT", label: "Chiriaș" },
+];
 
 const LEGAL_FORMS: { value: LegalForm; label: string }[] = [
   { value: "PF", label: "Persoană Fizică" },
@@ -35,10 +40,15 @@ function accountTypeFor(legalForm: LegalForm): AccountType {
   return "REGISTERED_COMPANY"; // SRL and SA — accounts.type doesn't distinguish them either
 }
 
-// Section 4.1 — landlord self-registration. Cognito sign-up handles email/password; everything
-// else here (accounts.type classification + fiscal data, Section 3.1) is captured up front so the
-// account can be created fully-formed once a backend endpoint exists to receive it (none does
-// yet — see the TODO after confirmRegistration below).
+// Section 4.1/4.4 — landlord and tenant self-registration share this form, split by a role choice
+// up front. Both roles pick a legal form and give their name — either can genuinely be any of PF/
+// PFA/II/IF/SRL/SA — but neither answers any *fiscal* question here (CUI/CNP, legal_name, vat_payer,
+// invoice_series): none of it is needed yet at signup, and Legea 190/2018 art. 4 + GDPR data
+// minimization argue against gathering it speculatively. It's collected bilaterally, from both
+// sides, only once a tenancy actually gets created/linked (Section 4.4) — reached from inside the
+// app afterward (Proprietar: add a tenancy on a unit; Chiriaș: enter the resulting code), not during
+// sign-up. That in-app flow isn't built yet — property/unit CRUD (Section 4.3) doesn't exist yet
+// either, and a tenancy needs a unit to live on.
 export function SignUpScreen() {
   const [step, setStep] = useState<"form" | "confirm">("form");
   const [cognitoUser, setCognitoUser] = useState<CognitoUser | null>(null);
@@ -46,13 +56,12 @@ export function SignUpScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  // null = not yet answered — a role this consequential shouldn't have a silent default either.
+  const [role, setRole] = useState<Role | null>(null);
   const [legalForm, setLegalForm] = useState<LegalForm>("PF");
-  const [legalName, setLegalName] = useState("");
-  const [cuiCnp, setCuiCnp] = useState("");
-  // null = not yet answered — a boolean can't represent "unanswered," and defaulting to false
-  // would let "plătitor de TVA" go unnoticed. formValid below blocks submit until this is set.
-  const [vatPayer, setVatPayer] = useState<boolean | null>(null);
-  const [invoiceSeries, setInvoiceSeries] = useState("");
+  const [nume, setNume] = useState("");
+  const [prenume, setPrenume] = useState("");
+  const [denumire, setDenumire] = useState("");
 
   const [code, setCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -60,19 +69,15 @@ export function SignUpScreen() {
 
   const signIn = useAuthStore((state) => state.signIn);
 
-  const isFiscallyRegistered = legalForm !== "PF";
+  const isPersonalForm = legalForm === "PF";
+
   const passwordsMatch = password.length > 0 && password === confirmPassword;
-  const cuiCnpValid = isFiscallyRegistered ? validateCUI(cuiCnp) : validateCNP(cuiCnp);
-  const invoiceSeriesValid = !isFiscallyRegistered || /^[A-Z0-9]{1,6}$/i.test(invoiceSeries);
-  const legalNameValid = !isFiscallyRegistered || legalName.trim().length > 0;
-  const vatPayerValid = !isFiscallyRegistered || vatPayer !== null;
+  const roleValid = role !== null;
+  const numeValid = !isPersonalForm || nume.trim().length > 0;
+  const prenumeValid = !isPersonalForm || prenume.trim().length > 0;
+  const denumireValid = isPersonalForm || denumire.trim().length > 0;
   const formValid =
-    email.trim().length > 0 &&
-    passwordsMatch &&
-    cuiCnpValid &&
-    invoiceSeriesValid &&
-    legalNameValid &&
-    vatPayerValid;
+    email.trim().length > 0 && passwordsMatch && roleValid && numeValid && prenumeValid && denumireValid;
 
   const handleCreateAccount = async () => {
     setError(null);
@@ -121,15 +126,18 @@ export function SignUpScreen() {
 
       await signIn(email, password);
 
-      // TODO(backend): no API exists yet to create `accounts` + `account_membership(role=OWNER)`
-      // (Section 4.1) — this is where that call goes once the backend does. For now the
-      // classification the user just filled in isn't persisted anywhere past this log line.
-      console.log("Pending account creation payload:", {
-        type: accountTypeFor(legalForm),
-        legalName: isFiscallyRegistered ? legalName : undefined,
-        cuiCnp,
-        vatPayer: isFiscallyRegistered ? vatPayer === true : false,
-        invoiceSeries: isFiscallyRegistered ? invoiceSeries : undefined,
+      // TODO(backend): no API exists yet — this is where the call goes once it does. OWNER: create
+      // `accounts(type, name)` + `account_membership(role=OWNER)` (Section 4.1) — fiscal fields
+      // (legal_name, cui_cnp, vat_payer, invoice_series) stay NULL until the first tenancy needs
+      // them (Section 4.4). TENANT: just a `users` row for now — they have no account/tenancy yet,
+      // that's created later when they add a tenancy via the association code from inside the app
+      // (Section 4.4, also not built yet). For now nothing filled in here is persisted past this log.
+      const name = isPersonalForm ? `${prenume.trim()} ${nume.trim()}`.trim() : denumire;
+      console.log("Pending user creation payload:", {
+        role,
+        legalForm,
+        name,
+        type: role === "OWNER" ? accountTypeFor(legalForm) : undefined,
       });
     } catch {
       // error state already set above
@@ -192,6 +200,21 @@ export function SignUpScreen() {
         <Text style={styles.error}>Parolele nu coincid</Text>
       ) : null}
 
+      <Text style={styles.sectionLabel}>Rol</Text>
+      <View style={styles.choiceRow}>
+        {ROLES.map(({ value, label }) => (
+          <TouchableOpacity
+            key={value}
+            style={[styles.choiceOption, role === value && styles.choiceOptionSelected]}
+            onPress={() => setRole(value)}
+          >
+            <Text style={[styles.choiceOptionText, role === value && styles.choiceOptionTextSelected]}>
+              {label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
       <Text style={styles.sectionLabel}>Entitate legală</Text>
       <View style={styles.optionList}>
         {LEGAL_FORMS.map(({ value, label }, index) => (
@@ -210,61 +233,26 @@ export function SignUpScreen() {
         ))}
       </View>
 
-      <Text style={styles.sectionLabel}>Date fiscale</Text>
-
-      {isFiscallyRegistered ? (
-        <TextInput
-          style={styles.input}
-          placeholder="Denumire legală"
-          value={legalName}
-          onChangeText={setLegalName}
-        />
-      ) : null}
-
-      <TextInput
-        style={styles.input}
-        placeholder={isFiscallyRegistered ? "CUI (ex: RO12345678 sau 12345678)" : "CNP"}
-        keyboardType="number-pad"
-        value={cuiCnp}
-        onChangeText={setCuiCnp}
-      />
-      {cuiCnp.length > 0 && !cuiCnpValid ? (
-        <Text style={styles.error}>{isFiscallyRegistered ? "CUI invalid" : "CNP invalid"}</Text>
-      ) : null}
-
-      {isFiscallyRegistered ? (
-        <TextInput
-          style={styles.input}
-          placeholder="Serie facturi"
-          autoCapitalize="characters"
-          value={invoiceSeries}
-          onChangeText={setInvoiceSeries}
-        />
-      ) : null}
-
-      {isFiscallyRegistered ? (
-        <View>
-          <Text style={styles.label}>Plătitor de TVA</Text>
-          <View style={styles.vatRow}>
-            <TouchableOpacity
-              style={[styles.vatOption, vatPayer === true && styles.vatOptionSelected]}
-              onPress={() => setVatPayer(true)}
-            >
-              <Text style={[styles.vatOptionText, vatPayer === true && styles.vatOptionTextSelected]}>
-                Da
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.vatOption, vatPayer === false && styles.vatOptionSelected]}
-              onPress={() => setVatPayer(false)}
-            >
-              <Text style={[styles.vatOptionText, vatPayer === false && styles.vatOptionTextSelected]}>
-                Nu
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      ) : null}
+      {isPersonalForm ? (
+        <>
+          <Text style={styles.sectionLabel}>Date personale</Text>
+          <TextInput style={styles.input} placeholder="Nume" value={nume} onChangeText={setNume} />
+          <TextInput style={styles.input} placeholder="Prenume" value={prenume} onChangeText={setPrenume} />
+        </>
+      ) : (
+        <>
+          <Text style={styles.sectionLabel}>Denumire</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Denumire"
+            value={denumire}
+            onChangeText={setDenumire}
+          />
+          <Text style={styles.caption}>
+            CUI-ul și celelalte date fiscale se cer când se creează sau se leagă primul tenancy, nu acum.
+          </Text>
+        </>
+      )}
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <TouchableOpacity
@@ -294,9 +282,8 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     marginTop: 8,
   },
-  label: { marginBottom: 6 },
-  vatRow: { flexDirection: "row", gap: 8 },
-  vatOption: {
+  choiceRow: { flexDirection: "row", gap: 8 },
+  choiceOption: {
     flex: 1,
     borderWidth: 1,
     borderColor: "#1a73e8",
@@ -304,9 +291,9 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     alignItems: "center",
   },
-  vatOptionSelected: { backgroundColor: "#1a73e8" },
-  vatOptionText: { color: "#1a73e8", fontWeight: "600" },
-  vatOptionTextSelected: { color: "#fff" },
+  choiceOptionSelected: { backgroundColor: "#1a73e8" },
+  choiceOptionText: { color: "#1a73e8", fontWeight: "600" },
+  choiceOptionTextSelected: { color: "#fff" },
   optionList: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, overflow: "hidden" },
   option: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 12 },
   optionDivider: { borderTopWidth: 1, borderTopColor: "#ccc" },

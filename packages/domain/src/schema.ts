@@ -93,7 +93,9 @@ export const accounts = pgTable("accounts", {
   name: varchar("name", { length: 200 }).notNull(),
   type: accountType("type").notNull(),
   legalName: varchar("legal_name", { length: 200 }),
-  cuiCnp: varchar("cui_cnp", { length: 20 }),
+  // A CNP identifies exactly one person and a CUI exactly one company — either should back at
+  // most one account on the platform, so this is a real key, not just an identifier.
+  cuiCnp: varchar("cui_cnp", { length: 20 }).unique(),
   vatPayer: boolean("vat_payer").notNull().default(false),
   invoiceSeries: varchar("invoice_series", { length: 10 }),
   invoiceNextNumber: integer("invoice_next_number").notNull().default(1),
@@ -164,6 +166,9 @@ export const tenancies = pgTable("tenancies", {
   // fiscal entity itself.
   tenantCompanyName: varchar("tenant_company_name", { length: 200 }),
   tenantCompanyCui: varchar("tenant_company_cui", { length: 20 }),
+  // Generated when the owner creates the tenancy, replacing an email/SMS invite (Section 4.4) — the
+  // tenant self-registers and enters this to link. Cleared once claimed.
+  associationCode: varchar("association_code", { length: 12 }),
 });
 
 export const bnrExchangeRates = pgTable("bnr_exchange_rates", {

@@ -74,7 +74,11 @@ users (Cognito sub) ──┬── account_memberships ──> accounts ──>
 - **users** — `id (cognito_sub)`, `email`, `phone`, `name`. Holds no roles.
 - **accounts** — a landlord's portfolio (individual/sole trader/SRL).
   `id`, `name`, `type [REGISTERED_INDIVIDUAL|REGISTERED_COMPANY|UNREGISTERED_INDIVIDUAL]`, `legal_name`,
-  `cui_cnp`, `vat_payer bool`, `invoice_series`, `invoice_next_number`, `anaf_oauth_status`, `created_by`.
+  `cui_cnp` (**unique**), `vat_payer bool`, `invoice_series`, `invoice_next_number`, `anaf_oauth_status`,
+  `created_by`. `cui_cnp` being unique is what makes the owner+collaborators model work: a CNP identifies
+  exactly one person and a CUI exactly one company, so it's the real key tying an `account` together — the
+  owner and every collaborator they invite (Section 4.2) sign up under their *own* email but all land on
+  `account_membership` rows against the same `account`, found via that CUI/CNP.
   Named for fiscal registration status, deliberately *not* reusing the informal B2B/B2C/C2B/C2C shorthand
   above — that labels the *tenancy* (Section 1), and is a function of `tenancies.tenant_type`, completely
   independent of this field (a `REGISTERED_INDIVIDUAL` landlord renting to a company is B2B, exactly like a
@@ -83,9 +87,13 @@ users (Cognito sub) ──┬── account_memberships ──> accounts ──>
   sibling individual forms under OUG 44/2008, none with legal personality, all CUI-bearing, taxed the same
   way) and `REGISTERED_COMPANY` (SRL or SA, has a CUI — both map to the same `type`, distinguished only by
   `legal_name`) both issue e-Factura → `REGISTERED_ANAF` tenancies only.
-  `UNREGISTERED_INDIVIDUAL` (a plain individual, CNP only, no CUI, no PFA registration) can't issue
-  e-Factura at all → only `C2B_WITHHOLDING` or `UNREGISTERED_C2C` tenancies (Section 1's C2B/C2C rows —
-  "Landlord as an individual").
+  `UNREGISTERED_INDIVIDUAL` (a plain individual, no CUI, no PFA registration) can't issue e-Factura at all
+  → only `C2B_WITHHOLDING` or `UNREGISTERED_C2C` tenancies (Section 1's C2B/C2C rows — "Landlord as an
+  individual"). Only `name` and `type` are set at account creation (Section 4.1) — `legal_name`, `cui_cnp`,
+  `vat_payer`, and `invoice_series` all start `NULL`/default and are filled in **once**, bilaterally, the
+  first time the account gets a `tenancy` (Section 4.4), not speculatively at signup: none of it is legally
+  required on an invoice to an individual, and Legea 190/2018 art. 4 plus GDPR data minimization
+  (Art. 5(1)(c)) argue against gathering it before it's actually needed.
 - **account_memberships** — links a user to an account with a role.
   `id`, `account_id`, `user_id`, `role [OWNER|COLLABORATOR|ACCOUNTANT_READONLY]`.
   - `OWNER` → full implicit access, no scope needed.
@@ -115,7 +123,9 @@ users (Cognito sub) ──┬── account_memberships ──> accounts ──>
   `tenant_company_name`, `tenant_company_cui` — the tenant-company's fiscal identity, needed to address
   the e-Factura (B2B) or to identify the paying company on the withholding statement (C2B); the individual
   linked via `tenancy_memberships` may just be an employee using the app on the company's behalf, not the
-  fiscal entity itself.
+  fiscal entity itself. `association_code` (nullable, short alphanumeric) — generated when the owner creates
+  the tenancy, cleared once a tenant links to it via self-registration (Section 4.4); replaces the older
+  email/SMS-invite-only flow.
 - **bnr_exchange_rates** — daily FX reference rates cached from BNR's public feed.
   `id`, `rate_date`, `currency (e.g. EUR)`, `rate_to_ron`. Populated by a scheduled job (see Section 4.6, Section 6); never
   fetched synchronously during invoice generation so the rate used is always reproducible/auditable.
@@ -171,35 +181,80 @@ users (Cognito sub) ──┬── account_memberships ──> accounts ──>
 
 ## 4. Key flows
 
-### 4.1 Landlord onboarding
-Cognito sign-up (email/password + email confirmation code) is a single form that also captures the
-`accounts.type` classification and fiscal data up front, not deferred to Settings: a legal-form picker —
-Persoană Fizică / PFA / Întreprindere Individuală / Întreprindere Familială / SRL / SA — where Persoană
-Fizică → `UNREGISTERED_INDIVIDUAL`, CNP only; any other choice → `REGISTERED_INDIVIDUAL` (PFA/II/IF) or
-`REGISTERED_COMPANY` (SRL/SA) plus `legal_name`, `cui_cnp` (CNP or CUI, checksum-validated), `vat_payer`,
-`invoice_series`. Cognito sign-up → create `account` with that data → `account_membership(role=OWNER)`.
-Settings remains where this data is *edited* later (Section 5.1 nav), plus the ANAF OAuth connect
-(Section 4.8), which necessarily happens after the account exists.
+### 4.1 Landlord & tenant onboarding
+Cognito sign-up (email/password + email confirmation code) starts with a role choice — Proprietar (landlord)
+or Chiriaș (tenant) — then, **for both roles alike**, a legal-form picker: Persoană Fizică / PFA /
+Întreprindere Individuală / Întreprindere Familială / SRL / SA (either role can genuinely be any of these),
+plus a name — first/last name (`users.name`) for Persoană Fizică, or a simple `Denumire` for the rest. That's
+the entire form. **No association code and no fiscal data** (CUI/CNP, `legal_name`, `vat_payer`,
+`invoice_series`) is collected at signup for either role — none of it is needed yet, and Legea 190/2018
+art. 4 plus GDPR data minimization (Art. 5(1)(c)) argue against gathering it speculatively. It's collected
+**bilaterally**, from both sides, only when a `tenancy` actually gets created/linked (§4.4) — the first
+moment any of it is genuinely necessary, reached from *inside* the app afterward, not during sign-up.
+
+For Proprietar, the legal-form choice also sets `accounts.type` (`UNREGISTERED_INDIVIDUAL` for Persoană
+Fizică, `REGISTERED_INDIVIDUAL` for PFA/II/IF, `REGISTERED_COMPANY` for SRL/SA — Section 3.1) and `Denumire`
+feeds `accounts.name` (*not* the officially-registered `legal_name`, which stays `NULL` until confirmed at
+first-tenancy time) — Cognito sign-up → create `accounts(type, name)` + `account_membership(role=OWNER)`.
+For Chiriaș, the same legal-form/name choice only feeds `users.name` — a tenant has no `account` at all, so
+nothing else is created at sign-up; a `tenancy_membership` comes later, from linking a tenancy (§4.4).
+Settings is where an owner's fiscal data eventually lives once captured (Section 5.1 nav), plus the ANAF
+OAuth connect (Section 4.8), which necessarily happens after both the account and its fiscal data exist.
 
 If the person already has an identity (e.g. an existing `tenancy_membership` as a tenant elsewhere — global
 identity, Section 3), no new Cognito sign-up happens: "Become a landlord" from within the app shows the same
-classification + fiscal data form, then creates a new `account` + `account_membership(role=OWNER)` on their
-existing `user_id`. Their existing `tenancy_membership`(s) are untouched — the `ContextSwitcher`
-(Section 5.1) now shows both contexts.
+minimal form, then creates a new `account` + `account_membership(role=OWNER)` on their existing `user_id`.
+Their existing `tenancy_membership`(s) are untouched — the `ContextSwitcher` (Section 5.1) now shows both
+contexts.
 
 ### 4.2 Adding a collaborator
 Owner invites by email → Cognito (`AdminCreateUser` or an acceptance link if the user already exists) →
 `account_membership(role=COLLABORATOR)` → UI for scope assignment (selecting properties/units).
+
+Because `accounts.cui_cnp` is unique (Section 3.1), entering a CUI (at first-tenancy time, §4.4 — not at
+signup, §4.1, where it's never collected) that already backs an `account` isn't allowed to silently create a
+duplicate: it's rejected and the person is pointed at asking the existing account's owner for a collaborator
+invite instead.
 
 ### 4.3 Adding a property + unit
 Owner creates a `property` → `unit` → toggle list of utilities (cold/hot water, gas, electricity, internet,
 trash, maintenance) → for each active utility: tariff basis (index / fixed cost / quota share / per person) +
 unit price/fixed amount/percentage + **order in the photo-capture sequence**.
 
-### 4.4 Inviting a tenant & tenancy
-Owner creates a `tenancy` on a `unit` → invites a tenant (email/phone) → if the user doesn't exist, Cognito
-creates a new account; if they already exist (e.g. a tenant with other units from other landlords), only a
-new `tenancy_membership` is created on their existing identity.
+### 4.4 Associating a tenant & tenancy
+Both directions start from *inside* the app (mobile, not at sign-up — §4.1 no longer asks for any code):
+
+- **Owner**: from the Tenancies tab, adds a tenancy on a `unit` (requires §4.3's property/unit CRUD to exist
+  first — not built yet, same as this whole flow). The app generates a short `association_code` instead of
+  sending an email/SMS invite, shown to the owner to pass along however they like.
+- **Tenant**: from the Tenancies tab, enters that code. If they don't have an identity yet, they hit the
+  minimal Cognito sign-up form first (§4.1, role = Chiriaș) — same "existing identity" pattern as "Become a
+  landlord" applies if they already do (no new Cognito sign-up, just a new `tenancy_membership` on their
+  existing `user_id`).
+
+**Fiscal data is collected bilaterally right here, once the code resolves — this is the first point any of
+it is actually needed, per §4.1's data-minimization rationale:**
+
+- **Tenant side**: the same legal-form picker as §4.1, defaulting to whatever they picked at their own
+  sign-up but confirmable/changeable per tenancy (a tenant linking a *second* tenancy might be acting on a
+  *different* company's behalf than their first). Persoană Fizică → `tenant_type = INDIVIDUAL`, no other
+  field (`tenancies` has no per-tenant CNP anywhere in the schema — see Section 3.1 for why). Any other
+  choice → `tenant_type = COMPANY` + `tenant_company_name`/`tenant_company_cui` (checksum-validated CUI).
+  Those two fields live on the `tenancy`, not the user, which is exactly why a second tenancy re-enters them.
+  Unlike `accounts.cui_cnp`, `tenancies.tenant_company_cui` is **not** unique — the same company can
+  legitimately rent multiple units, or the tenancy might be entered by an employee acting on the company's
+  behalf without owning the CUI.
+- **Owner side**: only asked if `accounts.cui_cnp`/`legal_name` are still `NULL` (i.e. this is the account's
+  first tenancy) — fills in the fiscal data matching the `accounts.type` already fixed at signup (Persoană
+  Fizică accounts get CNP; PFA/II/IF/SRL/SA accounts get the confirmed `legal_name` + checksum-validated CUI,
+  unique per Section 3.1), plus `vat_payer` and `invoice_series` if the type issues e-Factura. All four are
+  **account-level, asked once** — subsequent tenancies on the same account don't ask again.
+- `contract_type` (`REGISTERED_ANAF`/`C2B_WITHHOLDING`/`UNREGISTERED_C2C`) is then derived automatically
+  from the resulting `accounts.type` × `tenant_type` combination — the app never asks "is this B2B/B2C/C2B/
+  C2C?" as a literal question (Section 1's note: those labels aren't stored as their own value anywhere).
+
+`tenancy_membership` is created once all of the above resolves; `association_code` is cleared on the
+`tenancy` once claimed.
 
 If `contract_type = C2B_WITHHOLDING`, the owner is shown a reminder that registering the contract with ANAF
 (Form C168, within 30 days of signing) is a legal requirement, not optional — the owner self-confirms once

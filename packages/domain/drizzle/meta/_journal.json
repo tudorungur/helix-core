@@ -15,6 +15,20 @@
       "when": 1784135259239,
       "tag": "0001_wakeful_xavin",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784144054294,
+      "tag": "0002_sweet_hammerhead",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1784144629972,
+      "tag": "0003_misty_rafael_vega",
+      "breakpoints": true
     }
   ]
 }

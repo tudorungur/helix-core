@@ -1,0 +1,1 @@
+ALTER TABLE "accounts" ADD CONSTRAINT "accounts_cui_cnp_unique" UNIQUE("cui_cnp");
