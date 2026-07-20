@@ -14,12 +14,14 @@ type Props = PropsWithChildren<{
   // for short content — it was already correct before automaticallyAdjustKeyboardInsets replaced
   // it repo-wide for the SignUp fix. Default to the short-form (KeyboardAvoidingView) behavior.
   longForm?: boolean;
+  // Auth entry points (SignIn/SignUp) show the "renta" wordmark; screens reached from inside the
+  // already-authenticated app (with their own nav header/tab bar) don't need it repeated.
+  showBrand?: boolean;
 }>;
 
 // Wraps every screen that uses the software keyboard. keyboardShouldPersistTaps lets a button tap
-// register without first having to dismiss the keyboard. Also carries the "renta" wordmark, so
-// every auth screen shows it in the same spot rather than each screen repeating its own header.
-export function FormScreen({ children, contentContainerStyle, longForm = false }: Props) {
+// register without first having to dismiss the keyboard.
+export function FormScreen({ children, contentContainerStyle, longForm = false, showBrand = true }: Props) {
   const useNativeInsets = longForm && Platform.OS === "ios";
 
   return (
@@ -32,7 +34,7 @@ export function FormScreen({ children, contentContainerStyle, longForm = false }
         keyboardShouldPersistTaps="handled"
         automaticallyAdjustKeyboardInsets={useNativeInsets}
       >
-        <Text style={styles.brand}>renta</Text>
+        {showBrand ? <Text style={styles.brand}>renta</Text> : null}
         {children}
       </ScrollView>
     </KeyboardAvoidingView>

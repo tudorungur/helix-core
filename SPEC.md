@@ -221,16 +221,26 @@ Owner creates a `property` → `unit` → toggle list of utilities (cold/hot wat
 trash, maintenance) → for each active utility: tariff basis (index / fixed cost / quota share / per person) +
 unit price/fixed amount/percentage + **order in the photo-capture sequence**.
 
+*Implementation status*: `OwnerTenanciesScreen` (mobile) currently does only a minimal slice of this —
+property address + unit label, no utility toggles — combined directly with tenancy creation (§4.4), just
+enough to exercise the association-code flow end-to-end. The utility-configuration UI above is still
+unbuilt.
+
 ### 4.4 Associating a tenant & tenancy
 Both directions start from *inside* the app (mobile, not at sign-up — §4.1 no longer asks for any code):
 
-- **Owner**: from the Tenancies tab, adds a tenancy on a `unit` (requires §4.3's property/unit CRUD to exist
-  first — not built yet, same as this whole flow). The app generates a short `association_code` instead of
-  sending an email/SMS invite, shown to the owner to pass along however they like.
+- **Owner**: from the Tenancies tab, adds a tenancy on a `unit`. The app generates a short
+  `association_code` instead of sending an email/SMS invite, shown to the owner to pass along however they
+  like.
 - **Tenant**: from the Tenancies tab, enters that code. If they don't have an identity yet, they hit the
   minimal Cognito sign-up form first (§4.1, role = Chiriaș) — same "existing identity" pattern as "Become a
   landlord" applies if they already do (no new Cognito sign-up, just a new `tenancy_membership` on their
   existing `user_id`).
+
+*Implementation status*: `OwnerTenanciesScreen`/`TenantTenanciesScreen` (mobile) exercise the code
+generation + entry mechanics end-to-end (client-side only — no backend to actually resolve a code to a
+tenancy yet, matches §4.1's TODO pattern). **The bilateral fiscal-collection step below is not built yet** —
+next up.
 
 **Fiscal data is collected bilaterally right here, once the code resolves — this is the first point any of
 it is actually needed, per §4.1's data-minimization rationale:**
