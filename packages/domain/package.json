@@ -10,9 +10,11 @@
     "lint": "echo \"domain: lint pending\"",
     "test": "echo \"domain: test pending\"",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "drizzle-kit migrate",
+    "db:migrate:data-api": "node scripts/migrate-data-api.mjs"
   },
   "dependencies": {
+    "@aws-sdk/client-rds-data": "^3.1091.0",
     "drizzle-orm": "^0.38.0",
     "postgres": "^3.4.5",
     "zod": "^3.24.0"

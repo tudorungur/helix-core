@@ -63,6 +63,10 @@ resource "aws_rds_cluster" "this" {
   vpc_security_group_ids      = [aws_security_group.aurora.id]
   storage_encrypted           = true
   skip_final_snapshot         = var.environment != "prod"
+  # Lets migrations (and, later, Lambda) run against this cluster over HTTPS/IAM instead of a
+  # direct TCP connection — the only path in from outside the VPC, since there's no NAT/bastion and
+  # RDS Proxy has no public endpoint (Section 8).
+  enable_http_endpoint = var.enable_data_api
 
   serverlessv2_scaling_configuration {
     min_capacity             = var.min_capacity

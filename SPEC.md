@@ -725,6 +725,17 @@ helix-core/
 - Chosen over Prisma for lower cold-start overhead (no separate query-engine binary to load per invocation)
   and over raw SQL + hand-rolled migrations for compile-time type safety, while keeping generated queries
   close to plain SQL.
+- **Migrations run over the RDS Data API, not a direct TCP connection** — dev's VPC has no NAT/bastion and
+  RDS Proxy has no public endpoint (Section 8), so nothing outside the VPC can reach Aurora on port 5432.
+  The Aurora cluster has `enable_http_endpoint` on (`infra/modules/database`, `enable_data_api` var, default
+  `true`) specifically to allow this. `packages/domain/scripts/migrate-data-api.mjs` (`pnpm db:migrate:data-api`)
+  applies `./drizzle/*.sql` via `drizzle-orm/aws-data-api`, resolving AWS credentials by shelling out to
+  `aws configure export-credentials` rather than letting the SDK's own profile-chain do it — this machine's
+  `helix-core` CLI profile is itself a `credential_process` with no `--profile` flag, so if the Node SDK
+  resolves credentials for a profile literally named `helix-core` (e.g. via `AWS_PROFILE=helix-core`), the
+  spawned child process inherits that same env var and tries to resolve "helix-core" again, which the CLI
+  correctly rejects as a self-referential cycle. Lambda still reaches Aurora through RDS Proxy (Section 6's
+  diagram, TCP, from inside the VPC) — Data API is only for tooling that runs outside it.
 
 ## 8. Terraform — modular structure & environment strategy
 

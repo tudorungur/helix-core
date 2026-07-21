@@ -48,3 +48,9 @@ variable "seconds_until_auto_pause" {
   type        = number
   default     = null
 }
+
+variable "enable_data_api" {
+  description = "Enables the RDS Data API (HTTPS/IAM SQL execution) — the only way to reach this cluster from outside the VPC without a bastion or NAT."
+  type        = bool
+  default     = true
+}
