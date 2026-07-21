@@ -295,20 +295,50 @@ which read as a bug, not a feature; the persistent header also added complexity 
 the tab content below it. No utility toggles yet, no `area_sqm`/`rooms` yet. It's a
 separate screen from tenancy creation (§4.4) — a unit can exist here unrented indefinitely;
 `OwnerTenanciesScreen` picks from units on **active** properties added here rather than creating one
-inline — each eligible unit its own tile (same visual language as the property tiles above), not a
-shared box with divided rows. The utility-configuration UI above is still unbuilt. Neither screen
-repeats its tab name as an in-content title (Portofoliu/Închirieri) — AppStack's header already shows
-it; `OwnerTenanciesScreen`'s creation form is a centered dashed "+ Adaugă chirie" trigger (same
+inline — eligible units are grouped under their property (address header, then a shared bordered box
+with hairline-divided rows per unit, same nesting Portofoliu itself uses for properties→units — this
+reverted from an earlier "each unit its own tile" version). Two-option pickers (unit type
+Locativă/Comercială, currency EUR/RON, Plătitor de TVA Da/Nu) all use a shared `Toggle` component
+(`src/components/Toggle.tsx`, a merged segmented control) instead of two separately-bordered choice
+boxes. Every add/edit form's action row (Adaugă/Salvează, Anulează, Șterge) is rendered as plain text
+links (blue/grey-bold/red) rather than a filled primary button + separate cancel link — one consistent
+button language across Proprietăți, Entități legale, and Chirii; the auth screens and the tenant's
+association-code entry keep their filled primary-CTA button, since those are single-action screens with
+no adjacent Anulează. The utility-configuration UI above is still unbuilt. Neither screen repeats its
+tab name as an in-content title (Portofoliu/Închirieri) — AppStack's header already shows it — but each
+CRUD screen now has a hairline divider + a "X existente" sub-heading (Proprietăți existente/Entități
+legale existente/Chirii existente) separating the add-new area from the list of already-created items.
+`OwnerTenanciesScreen`'s creation form is a centered dashed "+ Adaugă chirie" trigger (same
 expand/collapse pattern as Portofoliu's "+ Adaugă proprietate" and Setări's "+ Adaugă entitate
 legală") rather than always-visible, and its result/empty states use "chirie" throughout instead of
 the earlier English "tenancy" wording. **Created tenancies persist as their own tiles** —
-`portfolioStore`'s `tenancies`/`addTenancy` (previously the created tenancy and its
+`portfolioStore`'s `tenancies`/`addTenancy`/`updateTenancy` (previously the created tenancy and its
 `association_code` only flashed on a one-off "result" screen and were gone for good once you
 navigated away or created another; `addTenancy` now both stores the `Tenancy` and flips the unit out
-of the available pool in one update). Each tile shows the unit + property address, rent amount/
-currency, start date, and the `association_code` — always accessible, not a one-time reveal. No
-edit/delete on a tenancy yet (properties/units/legal entities all have it; tenancies don't, since
-deleting one would need to decide whether the unit becomes available again — not decided yet).
+of the available pool in one update). Each tile shows "{unit label} · {sub-type}" (same format as
+Portofoliu's own unit rows, via a shared `unitTypeLabel()` helper in `portfolioStore.ts`), "Cost chirie
+(lunar): {amount} {currency} · din {start date}", and "Cod de asociere: {code}" with a **Copiază**
+button (`expo-clipboard`, brief "Copiat ✓" feedback) — the code and its explanation ("Acest cod trebuie
+transmis chiriașului pentru adăugarea unității în aplicația acestuia.") are always accessible, not a
+one-time reveal. The start date field uses the RO date convention **ZZ-LL-AAAA**, not ISO. Tapping a
+tenancy highlights just its own row; the edit form (start date/rent/currency, confirm-before-save)
+renders once below the whole tenancy list for that property group — not nested inside the selected
+row — same "form at the bottom of the list" pattern the unit-picker above already uses, adopted here
+after an early version nested the form in the row and made the row+form read as one solid blue block.
+**Tenancies can now be deleted** too (Șterge, inside the edit form, confirm Alert) — deleting one
+resets the unit's `hasActiveTenancy` back to `false`, so it re-enters the available-units pool for a
+new tenancy, same cascade `deleteProperty`/`deleteUnit` already do.
+
+Each tile also shows an **Asociat/Neasociat** badge (green/amber) — same capitalized-first-word
+convention as Portofoliu's own **Închiriată/Liberă** badge (grey/green), kept consistent across both
+even though the color pairs differ — a *different* fact from the unit's own Închiriată/Liberă: whether the tenant
+has actually entered the `association_code` in their own dashboard yet, not whether a tenancy
+contract exists at all. A unit reads "Închiriată" the moment the owner creates the tenancy, but its
+tenancy stays "Neasociat" until the tenant claims it. This loop is real in the mock, not simulated —
+Owner and Tenant contexts share the same client-side `portfolioStore`
+(`associateTenancyByCode`, called from `TenantTenanciesScreen`), so entering a valid code there
+actually flips `tenancy.associated` and the owner sees it update. An unrecognized or already-used
+code shows an inline error instead of silently "succeeding" the way the old mock did.
 
 ### 4.4 Associating a tenant & tenancy
 Both directions start from *inside* the app (mobile, not at sign-up — §4.1 no longer asks for any code):
@@ -323,9 +353,11 @@ Both directions start from *inside* the app (mobile, not at sign-up — §4.1 no
 
 *Implementation status*: `OwnerTenanciesScreen`/`TenantTenanciesScreen` (mobile) exercise the code
 generation + entry mechanics end-to-end (client-side only — no backend to actually resolve a code to a
-tenancy yet, matches §4.1's TODO pattern). If the owner's Portfolio has no unrented unit, the screen sends
-them to the Portofoliu tab instead of creating one inline — property/unit creation lives only in §4.3 now.
-**The bilateral fiscal-collection step below is not built yet** — next up.
+tenancy yet, matches §4.1's TODO pattern). If the owner's Portfolio has no unrented unit, the "+ Adaugă
+chirie" trigger just renders greyed-out/disabled with explanatory hint text (distinguishing "no units
+in the portfolio at all" from "units exist but all are already rented") — it no longer auto-navigates
+to Portofoliu on tap; property/unit creation lives only in §4.3, reached by the owner switching tabs
+themselves. **The bilateral fiscal-collection step below is not built yet** — next up.
 
 **Fiscal data is collected bilaterally right here, once the code resolves — this is the first point any of
 it is actually needed for the tenant side (owner side may already be done, see below), per §4.1's

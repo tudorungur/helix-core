@@ -3,9 +3,15 @@ import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from "reac
 
 import { FormScreen } from "../../components/FormScreen";
 import { formStyles as styles } from "../../components/formStyles";
+import { Toggle } from "../../components/Toggle";
 import { usePortfolioStore } from "../../context/portfolioStore";
 import type { LegalForm } from "../../context/portfolioStore";
 import { validateCUI } from "../../validators/romanianFiscalId";
+
+const VAT_OPTIONS: [{ value: "YES" | "NO"; label: string }, { value: "YES" | "NO"; label: string }] = [
+  { value: "YES", label: "Da" },
+  { value: "NO", label: "Nu" },
+];
 
 const LEGAL_FORMS: { value: LegalForm; label: string }[] = [
   { value: "PF", label: "Persoană Fizică" },
@@ -161,23 +167,12 @@ export function OwnerSettingsScreen() {
                 <Text style={styles.error}>Acest CUI e deja folosit de altă entitate legală</Text>
               ) : null}
 
-              <Text style={styles.sectionLabel}>Plătitor de TVA</Text>
-              <View style={styles.choiceRow}>
-                {[
-                  { value: true, label: "Da" },
-                  { value: false, label: "Nu" },
-                ].map(({ value, label }) => (
-                  <TouchableOpacity
-                    key={label}
-                    style={[styles.choiceOption, vatPayer === value && styles.choiceOptionSelected]}
-                    onPress={() => setVatPayer(value)}
-                  >
-                    <Text style={[styles.choiceOptionText, vatPayer === value && styles.choiceOptionTextSelected]}>
-                      {label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
+              <Toggle
+                label="Plătitor de TVA"
+                options={VAT_OPTIONS}
+                value={vatPayer === null ? null : vatPayer ? "YES" : "NO"}
+                onChange={(value) => setVatPayer(value === "YES")}
+              />
 
               <TextInput
                 style={styles.input}
@@ -201,15 +196,11 @@ export function OwnerSettingsScreen() {
         <View style={localStyles.card}>
           {renderFormFields()}
           <View style={localStyles.row}>
-            <TouchableOpacity
-              style={[styles.button, localStyles.flexButton, !formValid && styles.buttonDisabled]}
-              onPress={submitForm}
-              disabled={!formValid}
-            >
-              <Text style={styles.buttonText}>Adaugă entitate legală</Text>
+            <TouchableOpacity onPress={submitForm} disabled={!formValid}>
+              <Text style={!formValid ? localStyles.actionMuted : localStyles.action}>Adaugă entitate legală</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={localStyles.cancelButton} onPress={resetForm}>
-              <Text style={localStyles.cancelButtonText}>Anulează</Text>
+            <TouchableOpacity onPress={resetForm}>
+              <Text style={localStyles.actionMuted}>Anulează</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -219,6 +210,9 @@ export function OwnerSettingsScreen() {
         </TouchableOpacity>
       )}
 
+      <View style={localStyles.sectionDivider} />
+      <Text style={styles.sectionLabel}>Entități legale existente</Text>
+
       {legalEntities.length === 0 ? (
         <Text style={styles.hint}>Nu ai încă nicio entitate legală adăugată.</Text>
       ) : (
@@ -227,15 +221,11 @@ export function OwnerSettingsScreen() {
             <View key={entity.id} style={[localStyles.card, localStyles.cardEditing]}>
               {renderFormFields()}
               <View style={localStyles.row}>
-                <TouchableOpacity
-                  style={[styles.button, localStyles.flexButton, !formValid && styles.buttonDisabled]}
-                  onPress={submitForm}
-                  disabled={!formValid}
-                >
-                  <Text style={styles.buttonText}>Salvează</Text>
+                <TouchableOpacity onPress={submitForm} disabled={!formValid}>
+                  <Text style={!formValid ? localStyles.actionMuted : localStyles.action}>Salvează</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={localStyles.cancelButton} onPress={resetForm}>
-                  <Text style={localStyles.cancelButtonText}>Anulează</Text>
+                <TouchableOpacity onPress={resetForm}>
+                  <Text style={localStyles.actionMuted}>Anulează</Text>
                 </TouchableOpacity>
                 <TouchableOpacity onPress={() => handleDelete(entity.id, entity.name)}>
                   <Text style={localStyles.actionDestructive}>Șterge</Text>
@@ -266,6 +256,9 @@ export function OwnerSettingsScreen() {
 }
 
 const localStyles = StyleSheet.create({
+  // Marks the boundary between "add an entity" (trigger/form) and the existing entities below —
+  // same as Închirieri's divider between the add-tenancy block and "Chirii existente".
+  sectionDivider: { height: StyleSheet.hairlineWidth, backgroundColor: "#ccc", marginTop: 16 },
   card: {
     borderWidth: 1,
     borderColor: "#ccc",
@@ -277,10 +270,9 @@ const localStyles = StyleSheet.create({
   },
   cardEditing: { borderColor: "#1a73e8" },
   row: { flexDirection: "row", alignItems: "center", gap: 16 },
-  flexButton: { flex: 1, marginTop: 0 },
-  cancelButton: { paddingVertical: 14, paddingHorizontal: 4 },
-  cancelButtonText: { color: "#8e8e93", fontWeight: "600" },
   action: { color: "#1a73e8", fontWeight: "600" },
+  // Slightly bolder than plain text so Anulează reads a bit more prominently, still neutral grey.
+  actionMuted: { color: "#8e8e93", fontWeight: "600" },
   actionDestructive: { color: "#d32f2f", fontWeight: "600" },
   optionList: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, overflow: "hidden" },
   option: { flexDirection: "row", alignItems: "center", gap: 12, padding: 12 },

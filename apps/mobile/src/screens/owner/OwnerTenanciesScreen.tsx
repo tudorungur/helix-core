@@ -1,19 +1,27 @@
 import { useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
-import type { BottomTabScreenProps } from "@react-navigation/bottom-tabs";
+import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import * as Clipboard from "expo-clipboard";
 
 import { FormScreen } from "../../components/FormScreen";
 import { formStyles as styles } from "../../components/formStyles";
-import { formatPropertyAddress, usePortfolioStore } from "../../context/portfolioStore";
-import type { RentCurrency, Unit } from "../../context/portfolioStore";
-import type { OwnerTabsParamList } from "../../navigation/OwnerTabs";
+import { Toggle } from "../../components/Toggle";
+import {
+  formatPropertyLocalityLine,
+  formatPropertyStreetLine,
+  unitTypeLabel,
+  usePortfolioStore,
+} from "../../context/portfolioStore";
+import type { RentCurrency, Tenancy, Unit } from "../../context/portfolioStore";
 
-type Props = BottomTabScreenProps<OwnerTabsParamList, "Tenancies">;
-
-const CURRENCIES: { value: RentCurrency; label: string }[] = [
+const CURRENCIES: [{ value: RentCurrency; label: string }, { value: RentCurrency; label: string }] = [
   { value: "EUR", label: "EUR" },
   { value: "RON", label: "RON" },
 ];
+
+// Same "Etichetă · Subtip" format as Portofoliu's unit tiles (Section 4.3).
+function unitDisplayLabel(unit: Unit | undefined): string {
+  return unit ? `${unit.label} · ${unitTypeLabel(unit.type)}` : "Unitate ștearsă";
+}
 
 // Section 4.4, minimal slice — creates a tenancy on a unit that already exists in the Portfolio
 // (§4.3, OwnerPortfolioScreen), picked from `usePortfolioStore`'s units where
@@ -23,14 +31,19 @@ const CURRENCIES: { value: RentCurrency; label: string }[] = [
 // it used to only flash once on a "result" screen and then be gone for good) via
 // `usePortfolioStore`'s `tenancies`/`addTenancy`. Both the unit picker (when adding a new tenancy)
 // and the list of already-created tenancies group by property — same visual pattern as Portofoliu's
-// property→units nesting — so units/tenancies on the same building read as belonging together. Still
-// no backend — `addTenancy` is entirely client-side (TODO(backend) below), and nothing survives a
+// property→units nesting — so units/tenancies on the same building read as belonging together. Every
+// tenancy tile is tappable to edit its contract terms in place (same pattern as units in Portofoliu —
+// no separate "Editează" button, the whole tile opens the form), with a "Copiază" button on the
+// association code (expo-clipboard) so it doesn't have to be retyped by hand. Still no backend —
+// `addTenancy`/`updateTenancy` are entirely client-side (TODO(backend) below), and nothing survives a
 // fresh app launch.
-export function OwnerTenanciesScreen({ navigation }: Props) {
+export function OwnerTenanciesScreen() {
   const units = usePortfolioStore((state) => state.units);
   const properties = usePortfolioStore((state) => state.properties);
   const tenancies = usePortfolioStore((state) => state.tenancies);
   const addTenancy = usePortfolioStore((state) => state.addTenancy);
+  const updateTenancy = usePortfolioStore((state) => state.updateTenancy);
+  const deleteTenancy = usePortfolioStore((state) => state.deleteTenancy);
 
   // Only units on an active property are eligible — a deactivated property (Section 4.3) drops out
   // of new-tenancy eligibility without needing its units individually excluded.
@@ -72,7 +85,7 @@ export function OwnerTenanciesScreen({ navigation }: Props) {
   };
 
   const unitValid = selectedUnitId !== null;
-  const startDateValid = /^\d{4}-\d{2}-\d{2}$/.test(startDate);
+  const startDateValid = /^\d{2}-\d{2}-\d{4}$/.test(startDate);
   const rentAmountValid = rentAmount.trim().length > 0 && Number(rentAmount) > 0;
   const currencyValid = currency !== null;
   const formValid = unitValid && startDateValid && rentAmountValid && currencyValid;
@@ -88,137 +101,281 @@ export function OwnerTenanciesScreen({ navigation }: Props) {
     resetForm();
   };
 
-  const renderTenancyTile = (tenancy: (typeof tenancies)[number], unit: Unit | undefined) => (
-    <View key={tenancy.id} style={localStyles.tenancyTile}>
-      <Text style={localStyles.optionText}>{unit ? unit.label : "Unitate ștearsă"}</Text>
+  // ---- Editing an existing tenancy's contract terms in place (not the unit — reassigning a
+  // tenancy to a different unit isn't supported) ----
+  const [editingTenancyId, setEditingTenancyId] = useState<string | null>(null);
+  const [editStartDate, setEditStartDate] = useState("");
+  const [editRentAmount, setEditRentAmount] = useState("");
+  const [editCurrency, setEditCurrency] = useState<RentCurrency | null>(null);
+
+  const editStartDateValid = /^\d{2}-\d{2}-\d{4}$/.test(editStartDate);
+  const editRentAmountValid = editRentAmount.trim().length > 0 && Number(editRentAmount) > 0;
+  const editValid = editStartDateValid && editRentAmountValid && editCurrency !== null;
+
+  const openEditTenancy = (tenancy: Tenancy) => {
+    setEditingTenancyId(tenancy.id);
+    setEditStartDate(tenancy.startDate);
+    setEditRentAmount(String(tenancy.rentAmount));
+    setEditCurrency(tenancy.rentCurrency);
+  };
+
+  const resetTenancyEdit = () => {
+    setEditingTenancyId(null);
+    setEditStartDate("");
+    setEditRentAmount("");
+    setEditCurrency(null);
+  };
+
+  const submitEditTenancy = () => {
+    if (!editingTenancyId || !editValid || !editCurrency) return;
+    Alert.alert("Confirmi modificările?", "Se salvează modificările pentru această chirie.", [
+      { text: "Anulează", style: "cancel" },
+      {
+        text: "Confirmă",
+        onPress: () => {
+          updateTenancy(editingTenancyId, editStartDate, Number(editRentAmount), editCurrency);
+          resetTenancyEdit();
+        },
+      },
+    ]);
+  };
+
+  const handleDeleteTenancy = (tenancy: Tenancy, unit: Unit | undefined) => {
+    Alert.alert(
+      "Ștergi chiria?",
+      `Chiria pentru ${unit ? unit.label : "unitatea ștearsă"} va fi ștearsă definitiv. Unitatea va deveni disponibilă pentru o chirie nouă.`,
+      [
+        { text: "Anulează", style: "cancel" },
+        {
+          text: "Șterge",
+          style: "destructive",
+          onPress: () => {
+            deleteTenancy(tenancy.id);
+            resetTenancyEdit();
+          },
+        },
+      ],
+    );
+  };
+
+  // ---- Copy association code ----
+  const [copiedTenancyId, setCopiedTenancyId] = useState<string | null>(null);
+
+  const handleCopyCode = async (tenancyId: string, code: string) => {
+    await Clipboard.setStringAsync(code);
+    setCopiedTenancyId(tenancyId);
+    setTimeout(() => setCopiedTenancyId((current) => (current === tenancyId ? null : current)), 1500);
+  };
+
+  // Read-only summary row only — highlighted when it's the one being edited, but the edit form
+  // itself never nests inside this row (that used to make the whole row, form included, read as
+  // one big blue block). Same split as Portofoliu's unit rows: the row here is the trigger +
+  // highlight, `renderTenancyEditForm` below renders the actual form once per property group.
+  const renderTenancyTile = (tenancy: Tenancy, unit: Unit | undefined, index: number) => (
+    <TouchableOpacity
+      key={tenancy.id}
+      style={[
+        localStyles.tenancyListRow,
+        index > 0 && localStyles.tenancyListRowDivider,
+        editingTenancyId === tenancy.id && localStyles.tenancyListRowEditing,
+      ]}
+      onPress={() => openEditTenancy(tenancy)}
+    >
+      <View style={localStyles.titleRow}>
+        <Text style={localStyles.optionText}>{unitDisplayLabel(unit)}</Text>
+        <Text style={tenancy.associated ? localStyles.unitStatusAssociated : localStyles.unitStatusPending}>
+          {tenancy.associated ? "Asociat" : "Neasociat"}
+        </Text>
+      </View>
       <Text style={localStyles.entityCaption}>
-        {tenancy.rentAmount} {tenancy.rentCurrency} · din {tenancy.startDate}
+        Cost chirie (lunar): {tenancy.rentAmount} {tenancy.rentCurrency} · din {tenancy.startDate}
       </Text>
-      <Text style={localStyles.tenancyCode}>Cod de asociere: {tenancy.associationCode}</Text>
-      <Text style={styles.caption}>Trebuie trimis chiriașului pentru adăugarea unității.</Text>
+      <View style={localStyles.codeRow}>
+        <Text style={localStyles.tenancyCode}>Cod de asociere: {tenancy.associationCode}</Text>
+        <TouchableOpacity onPress={() => handleCopyCode(tenancy.id, tenancy.associationCode)} hitSlop={8}>
+          <Text style={localStyles.action}>{copiedTenancyId === tenancy.id ? "Copiat ✓" : "Copiază"}</Text>
+        </TouchableOpacity>
+      </View>
+      <Text style={localStyles.codeCaption}>
+        Acest cod trebuie transmis chiriașului pentru adăugarea unității în aplicația acestuia.
+      </Text>
+    </TouchableOpacity>
+  );
+
+  // Rendered once, after the entire tenancyList for whichever property group contains the tenancy
+  // currently being edited (or after the orphans' list) — never nested inside a specific row.
+  const renderTenancyEditForm = (tenancy: Tenancy, unit: Unit | undefined) => (
+    <View style={localStyles.contractForm}>
+      <Text style={localStyles.contractFormLabel}>
+        Unitate chirie — {unitDisplayLabel(unit)}
+      </Text>
+      <Text style={styles.sectionLabel}>Data începere contract chirie</Text>
+      <TextInput
+        style={styles.input}
+        placeholder="Dată început (ZZ-LL-AAAA)"
+        keyboardType="numbers-and-punctuation"
+        value={editStartDate}
+        onChangeText={setEditStartDate}
+      />
+      {editStartDate.length > 0 && !editStartDateValid ? (
+        <Text style={styles.error}>Format așteptat: ZZ-LL-AAAA</Text>
+      ) : null}
+      <Text style={styles.sectionLabel}>Cost chirie lunară</Text>
+      <View style={localStyles.rentRow}>
+        <TextInput
+          style={[styles.input, localStyles.rentInput]}
+          placeholder="Chirie"
+          keyboardType="decimal-pad"
+          value={editRentAmount}
+          onChangeText={setEditRentAmount}
+        />
+        <Toggle options={CURRENCIES} value={editCurrency} onChange={setEditCurrency} />
+      </View>
+      <View style={localStyles.row}>
+        <TouchableOpacity onPress={submitEditTenancy} disabled={!editValid}>
+          <Text style={!editValid ? localStyles.actionMuted : localStyles.action}>Salvează</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={resetTenancyEdit}>
+          <Text style={localStyles.actionMuted}>Anulează</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => handleDeleteTenancy(tenancy, unit)}>
+          <Text style={localStyles.actionDestructive}>Șterge</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 
   return (
     <FormScreen contentContainerStyle={[styles.container, styles.containerCompactTop]} showBrand={false} longForm>
-      {tenancies.length === 0 ? (
-        <Text style={styles.hint}>Nu ai încă nicio chirie creată.</Text>
-      ) : (
-        <>
-          {propertiesWithTenancies.map((property) => (
-            <View key={property.id} style={localStyles.propertyGroup}>
-              <Text style={localStyles.propertyAddress}>{formatPropertyAddress(property)}</Text>
-              {tenanciesWithContext
-                .filter((entry) => entry.property?.id === property.id)
-                .map((entry) => renderTenancyTile(entry.tenancy, entry.unit))}
-            </View>
-          ))}
-          {orphanTenancies.map((entry) => renderTenancyTile(entry.tenancy, entry.unit))}
-        </>
-      )}
-
       {availableUnits.length === 0 ? (
-        formOpen ? null : (
-          <>
-            <Text style={styles.hint}>
-              Toate unitățile din portofoliu sunt deja închiriate, sau nu ai adăugat încă niciuna.
-            </Text>
-            <TouchableOpacity style={styles.button} onPress={() => navigation.navigate("Portfolio")}>
-              <Text style={styles.buttonText}>Mergi la Portofoliu</Text>
-            </TouchableOpacity>
-          </>
-        )
+        <>
+          <View style={[styles.sectionTrigger, styles.sectionTriggerDisabled]}>
+            <Text style={[styles.sectionTriggerText, styles.sectionTriggerTextDisabled]}>+ Adaugă chirie</Text>
+          </View>
+          <Text style={styles.hint}>
+            {units.length === 0
+              ? "Nu ai adăugat încă nicio unitate în portofoliu."
+              : "Toate unitățile din portofoliu sunt deja închiriate."}
+          </Text>
+        </>
       ) : formOpen ? (
-        <View style={localStyles.card}>
-          <Text style={styles.sectionLabel}>Unitate</Text>
+        <>
+          <Text style={styles.sectionLabel}>Selectează o unitate</Text>
           {propertiesWithAvailableUnits.map((property) => (
-            <View key={property.id}>
-              <Text style={localStyles.unitGroupLabel}>{formatPropertyAddress(property)}</Text>
-              {availableUnits
-                .filter((unit) => unit.propertyId === property.id)
-                .map((unit) => (
-                  <TouchableOpacity
-                    key={unit.id}
-                    style={[localStyles.tile, selectedUnitId === unit.id && localStyles.tileSelected]}
-                    onPress={() => setSelectedUnitId(unit.id)}
-                  >
-                    <Text style={localStyles.unitOptionText}>{unit.label}</Text>
-                    {selectedUnitId === unit.id ? <Text style={localStyles.unitOptionCheck}>✓</Text> : null}
-                  </TouchableOpacity>
-                ))}
+            <View key={property.id} style={localStyles.propertyGroup}>
+              <Text style={localStyles.propertyAddress}>{formatPropertyStreetLine(property)}</Text>
+              <Text style={localStyles.propertyLocality}>{formatPropertyLocalityLine(property)}</Text>
+              <View style={localStyles.unitList}>
+                {availableUnits
+                  .filter((unit) => unit.propertyId === property.id)
+                  .map((unit, index) => (
+                    <TouchableOpacity
+                      key={unit.id}
+                      style={[
+                        localStyles.unitListRow,
+                        index > 0 && localStyles.unitListRowDivider,
+                        selectedUnitId === unit.id && localStyles.unitListRowSelected,
+                      ]}
+                      onPress={() => setSelectedUnitId(unit.id)}
+                    >
+                      <Text style={localStyles.unitOptionText}>{unitDisplayLabel(unit)}</Text>
+                    </TouchableOpacity>
+                  ))}
+              </View>
+
+              {/* Same pattern as Portofoliu's unit-edit form (Section 4.3) — one form at the bottom
+                  of the whole list, not nested inside whichever row is selected; only that row's own
+                  highlight (above) shows which unit it applies to. */}
+              {availableUnits.some((unit) => unit.propertyId === property.id && unit.id === selectedUnitId) ? (
+                <View style={localStyles.contractForm}>
+                  <Text style={styles.sectionLabel}>Data începere contract chirie</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Dată început (ZZ-LL-AAAA)"
+                    keyboardType="numbers-and-punctuation"
+                    value={startDate}
+                    onChangeText={setStartDate}
+                  />
+                  {startDate.length > 0 && !startDateValid ? (
+                    <Text style={styles.error}>Format așteptat: ZZ-LL-AAAA</Text>
+                  ) : null}
+
+                  <Text style={styles.sectionLabel}>Cost chirie lunară</Text>
+                  <View style={localStyles.rentRow}>
+                    <TextInput
+                      style={[styles.input, localStyles.rentInput]}
+                      placeholder="Chirie"
+                      keyboardType="decimal-pad"
+                      value={rentAmount}
+                      onChangeText={setRentAmount}
+                    />
+                    <Toggle options={CURRENCIES} value={currency} onChange={setCurrency} />
+                  </View>
+
+                  <View style={localStyles.row}>
+                    <TouchableOpacity onPress={handleCreateTenancy} disabled={submitting || !formValid}>
+                      <Text style={submitting || !formValid ? localStyles.actionMuted : localStyles.action}>
+                        Creează chirie
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={resetForm}>
+                      <Text style={localStyles.actionMuted}>Anulează</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : null}
             </View>
           ))}
-
-          <Text style={styles.sectionLabel}>Contract</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Dată început (AAAA-LL-ZZ)"
-            keyboardType="numbers-and-punctuation"
-            value={startDate}
-            onChangeText={setStartDate}
-          />
-          {startDate.length > 0 && !startDateValid ? (
-            <Text style={styles.error}>Format așteptat: AAAA-LL-ZZ</Text>
-          ) : null}
-
-          <TextInput
-            style={styles.input}
-            placeholder="Chirie"
-            keyboardType="decimal-pad"
-            value={rentAmount}
-            onChangeText={setRentAmount}
-          />
-
-          <View style={styles.choiceRow}>
-            {CURRENCIES.map(({ value, label }) => (
-              <TouchableOpacity
-                key={value}
-                style={[styles.choiceOption, currency === value && styles.choiceOptionSelected]}
-                onPress={() => setCurrency(value)}
-              >
-                <Text style={[styles.choiceOptionText, currency === value && styles.choiceOptionTextSelected]}>
-                  {label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          <View style={localStyles.row}>
-            <TouchableOpacity
-              style={[styles.button, localStyles.flexButton, (submitting || !formValid) && styles.buttonDisabled]}
-              onPress={handleCreateTenancy}
-              disabled={submitting || !formValid}
-            >
-              {submitting ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.buttonText}>Creează chirie</Text>
-              )}
-            </TouchableOpacity>
-            <TouchableOpacity style={localStyles.cancelButton} onPress={resetForm}>
-              <Text style={localStyles.cancelButtonText}>Anulează</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+        </>
       ) : (
         <TouchableOpacity style={styles.sectionTrigger} onPress={() => setFormOpen(true)}>
           <Text style={styles.sectionTriggerText}>+ Adaugă chirie</Text>
         </TouchableOpacity>
+      )}
+
+      <View style={localStyles.sectionDivider} />
+      <Text style={styles.sectionLabel}>Chirii existente</Text>
+
+      {tenancies.length === 0 ? (
+        <Text style={styles.hint}>Nu ai încă nicio chirie creată.</Text>
+      ) : (
+        <>
+          {propertiesWithTenancies.map((property) => {
+            const groupEntries = tenanciesWithContext.filter((entry) => entry.property?.id === property.id);
+            const editingEntry = groupEntries.find((entry) => entry.tenancy.id === editingTenancyId);
+            return (
+              <View key={property.id} style={localStyles.propertyGroup}>
+                <Text style={localStyles.propertyAddress}>{formatPropertyStreetLine(property)}</Text>
+                <Text style={localStyles.propertyLocality}>{formatPropertyLocalityLine(property)}</Text>
+                <View style={localStyles.tenancyList}>
+                  {groupEntries.map((entry, index) => renderTenancyTile(entry.tenancy, entry.unit, index))}
+                </View>
+                {editingEntry ? renderTenancyEditForm(editingEntry.tenancy, editingEntry.unit) : null}
+              </View>
+            );
+          })}
+          {orphanTenancies.length > 0 ? (
+            <View style={localStyles.propertyGroup}>
+              <View style={localStyles.tenancyList}>
+                {orphanTenancies.map((entry, index) => renderTenancyTile(entry.tenancy, entry.unit, index))}
+              </View>
+              {(() => {
+                const editingEntry = orphanTenancies.find((entry) => entry.tenancy.id === editingTenancyId);
+                return editingEntry ? renderTenancyEditForm(editingEntry.tenancy, editingEntry.unit) : null;
+              })()}
+            </View>
+          ) : null}
+        </>
       )}
     </FormScreen>
   );
 }
 
 const localStyles = StyleSheet.create({
-  card: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 8,
-    padding: 12,
-    gap: 8,
-    marginTop: 8,
-    backgroundColor: "#fff",
-  },
+  // Marks the boundary between "add a tenancy" (unit picker + contract form) and "already-created
+  // tenancies" below it — the two blocks otherwise share the same property-tile look and read as
+  // one continuous list.
+  sectionDivider: { height: StyleSheet.hairlineWidth, backgroundColor: "#ccc", marginTop: 16 },
   // Same outer shape as Portofoliu's property card (border/radius/padding/background) — groups
   // every tenancy on that property's units underneath its address, same nesting pattern as
   // properties → units there.
@@ -232,45 +389,47 @@ const localStyles = StyleSheet.create({
     backgroundColor: "#fff",
   },
   propertyAddress: { fontSize: 16, fontWeight: "600" },
-  unitGroupLabel: {
-    color: "#8e8e93",
-    fontSize: 13,
-    fontWeight: "600",
-    marginTop: 8,
-    marginBottom: 4,
-  },
-  tenancyTile: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 8,
-    padding: 12,
-    marginTop: 4,
-  },
-  tenancyCode: {
-    fontSize: 15,
-    fontWeight: "700",
-    marginTop: 6,
-  },
+  propertyLocality: { fontSize: 13, color: "#8e8e93", marginTop: 2 },
+  // Multiple units/tenancies on the *same* property share one bordered box with hairline dividers
+  // between rows — same pattern as Portofoliu's unit list under a property — instead of each getting
+  // its own separate bordered tile (that read as too many nested boxes).
+  unitList: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, overflow: "hidden", marginTop: 4 },
+  unitListRow: { padding: 12 },
+  unitListRowDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#ccc" },
+  // Fills the whole row (same padding box as unitListRow) rather than a smaller inset strip — the
+  // Contract form expanding below it, in the same propertyGroup, stays on a plain background.
+  unitListRowSelected: { backgroundColor: "#eaf1fd" },
+  // Same shape as Portofoliu's unitForm — indented under the list it belongs to, small gap above
+  // it rather than a full section break.
+  contractForm: { gap: 8, paddingLeft: 12, marginTop: 2 },
+  // sectionLabel's own marginTop: 8 (formStyles) is meant to hug a *section* above it — reused here
+  // for a per-tenancy heading right under the list it edits, so it needs to hug that list instead.
+  contractFormLabel: { color: "#8e8e93", fontSize: 13, fontWeight: "600", letterSpacing: 0.5, marginTop: 0 },
+  // Chirie + monedă on one line — the amount field takes the remaining space, the currency options
+  // sit narrow to its right instead of their own full-width row underneath.
+  rentRow: { flexDirection: "row", gap: 8, alignItems: "center" },
+  rentInput: { flex: 1 },
+  tenancyList: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, overflow: "hidden", marginTop: 4 },
+  tenancyListRow: { padding: 12, gap: 4 },
+  tenancyListRowDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#ccc" },
+  tenancyListRowEditing: { backgroundColor: "#eaf1fd" },
+  codeRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 6 },
+  tenancyCode: { fontSize: 15, fontWeight: "700" },
+  codeCaption: { fontSize: 13, color: "#8e8e93", marginTop: 2 },
   row: { flexDirection: "row", alignItems: "center", gap: 16 },
-  flexButton: { flex: 1, marginTop: 0 },
-  cancelButton: { paddingVertical: 14, paddingHorizontal: 4 },
-  cancelButtonText: { color: "#8e8e93", fontWeight: "600" },
-  // Same tile look as Portofoliu's property cards — a separate bordered box per option, not one
-  // shared box with divided rows.
-  tile: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 8,
-    padding: 12,
-    marginTop: 4,
-    backgroundColor: "#fff",
-  },
-  tileSelected: { borderColor: "#1a73e8", backgroundColor: "#eaf1fd" },
+  // Same text-link action row as Portofoliu's unit form (Salvează/Anulează/Șterge as plain links,
+  // not a filled button + separate cancel link) — kept identical so both forms read as one pattern.
+  action: { color: "#1a73e8", fontWeight: "600" },
+  // Slightly bolder than plain text so Anulează reads a bit more prominently, still neutral grey.
+  actionMuted: { color: "#8e8e93", fontWeight: "600" },
+  actionDestructive: { color: "#d32f2f", fontWeight: "600" },
   unitOptionText: { flex: 1 },
-  unitOptionCheck: { color: "#1a73e8", fontWeight: "700", fontSize: 16 },
   optionText: { fontSize: 16, fontWeight: "600" },
+  titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  // Same visual language as Portofoliu's Închiriată/Liberă badge, but a different fact: whether the
+  // tenant has entered the association_code in their own dashboard, not whether the unit has a
+  // tenancy contract at all (a unit can be "Închiriată" with its tenancy still "Neasociat").
+  unitStatusAssociated: { color: "#1a9e5c", fontSize: 12, fontWeight: "600" },
+  unitStatusPending: { color: "#c77700", fontSize: 12, fontWeight: "600" },
   entityCaption: { fontSize: 12, color: "#8e8e93", marginTop: 2 },
 });

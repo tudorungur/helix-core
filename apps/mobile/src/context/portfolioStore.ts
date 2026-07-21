@@ -66,6 +66,11 @@ export type Tenancy = {
   rentAmount: number;
   rentCurrency: RentCurrency;
   associationCode: string;
+  // Flips to true once the tenant enters this code in their own dashboard (TenantTenanciesScreen,
+  // §4.4) — distinct from the unit's own Închiriată/Liberă flag (whether a tenancy contract exists
+  // at all): a unit can be "Închiriată" with its tenancy still "Neasociat" if the owner created the
+  // tenancy but the tenant hasn't claimed it yet.
+  associated: boolean;
 };
 
 const ASSOCIATION_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -78,6 +83,20 @@ function generateAssociationCode(length = 8): string {
   return code;
 }
 
+const UNIT_TYPE_LABELS: Record<UnitType, string> = {
+  APARTMENT: "Apartament",
+  HOUSE: "Casă",
+  RETAIL: "Spațiu comercial",
+  WAREHOUSE: "Hală / Depozit",
+  OFFICE: "Birou",
+};
+
+// Shared between Portofoliu's unit tiles and Închirieri's unit/tenancy tiles (§4.3/§4.4) so both
+// show the same sub-type label instead of each keeping its own copy of this map.
+export function unitTypeLabel(type: UnitType): string {
+  return UNIT_TYPE_LABELS[type];
+}
+
 export function legalEntityTypeFor(legalForm: LegalForm): LegalEntityType {
   if (legalForm === "PF") return "UNREGISTERED_INDIVIDUAL";
   // PFA, II, IF — the three sibling forms under OUG 44/2008, none with legal personality, all
@@ -86,10 +105,23 @@ export function legalEntityTypeFor(legalForm: LegalForm): LegalEntityType {
   return "REGISTERED_COMPANY"; // SRL and SA — legal_entities.type doesn't distinguish them either
 }
 
+// Single-line form — for contexts that need a plain string (Alert confirm messages), not the
+// two-line tile display below.
 export function formatPropertyAddress(address: PropertyAddress): string {
   const line1 = `${address.street} ${address.streetNumber}`;
   const parts = [line1, address.addressLine2, `${address.city}, ${address.county}`].filter(Boolean);
   return parts.join(", ");
+}
+
+// Two-line tile display (Portofoliu's property tiles, Închirieri's property-group headers) —
+// "Strada X, Număr Y[, linie opțională]" then "Județ / Oraș" underneath.
+export function formatPropertyStreetLine(address: PropertyAddress): string {
+  const parts = [`Strada ${address.street}, Număr ${address.streetNumber}`, address.addressLine2].filter(Boolean);
+  return parts.join(", ");
+}
+
+export function formatPropertyLocalityLine(address: PropertyAddress): string {
+  return `${address.county} / ${address.city}`;
 }
 
 type PortfolioState = {
@@ -108,6 +140,9 @@ type PortfolioState = {
   deleteUnit: (id: string) => void;
   tenancies: Tenancy[];
   addTenancy: (unitId: string, startDate: string, rentAmount: number, rentCurrency: RentCurrency) => Tenancy;
+  updateTenancy: (id: string, startDate: string, rentAmount: number, rentCurrency: RentCurrency) => void;
+  deleteTenancy: (id: string) => void;
+  associateTenancyByCode: (code: string) => "associated" | "already_associated" | "not_found";
 };
 
 let nextId = 1;
@@ -122,7 +157,7 @@ const generateId = () => String(nextId++);
 // update. A single account can hold multiple `legalEntities` — each `unit` (not property) picks
 // exactly one, which decides that unit's e-Factura eligibility (Section 1's note on the label being
 // per-unit, not per-property or per-account).
-export const usePortfolioStore = create<PortfolioState>((set) => ({
+export const usePortfolioStore = create<PortfolioState>((set, get) => ({
   legalEntities: [],
   properties: [],
   units: [],
@@ -202,6 +237,7 @@ export const usePortfolioStore = create<PortfolioState>((set) => ({
       rentAmount,
       rentCurrency,
       associationCode: generateAssociationCode(),
+      associated: false,
     };
     set((state) => ({
       tenancies: [...state.tenancies, tenancy],
@@ -210,5 +246,37 @@ export const usePortfolioStore = create<PortfolioState>((set) => ({
       ),
     }));
     return tenancy;
+  },
+  updateTenancy: (id, startDate, rentAmount, rentCurrency) => {
+    set((state) => ({
+      tenancies: state.tenancies.map((tenancy) =>
+        tenancy.id === id ? { ...tenancy, startDate, rentAmount, rentCurrency } : tenancy,
+      ),
+    }));
+  },
+  deleteTenancy: (id) => {
+    const tenancy = get().tenancies.find((t) => t.id === id);
+    set((state) => ({
+      tenancies: state.tenancies.filter((t) => t.id !== id),
+      units: tenancy
+        ? state.units.map((unit) =>
+            unit.id === tenancy.unitId ? { ...unit, hasActiveTenancy: false } : unit,
+          )
+        : state.units,
+    }));
+  },
+  // Section 4.4, tenant side — resolves the code entered in TenantTenanciesScreen against the same
+  // shared store the owner side writes to (no backend needed for this loop to actually work in the
+  // mock, since both contexts run in the same client app). Case/whitespace-insensitive, matching how
+  // the code is displayed (uppercase alphabet, Section context above).
+  associateTenancyByCode: (code) => {
+    const normalized = code.trim().toUpperCase();
+    const tenancy = get().tenancies.find((t) => t.associationCode === normalized);
+    if (!tenancy) return "not_found";
+    if (tenancy.associated) return "already_associated";
+    set((state) => ({
+      tenancies: state.tenancies.map((t) => (t.id === tenancy.id ? { ...t, associated: true } : t)),
+    }));
+    return "associated";
   },
 }));

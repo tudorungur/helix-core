@@ -3,14 +3,21 @@ import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from "reac
 
 import { FormScreen } from "../../components/FormScreen";
 import { formStyles as styles } from "../../components/formStyles";
-import { formatPropertyAddress, usePortfolioStore } from "../../context/portfolioStore";
+import { Toggle } from "../../components/Toggle";
+import {
+  formatPropertyAddress,
+  formatPropertyLocalityLine,
+  formatPropertyStreetLine,
+  unitTypeLabel,
+  usePortfolioStore,
+} from "../../context/portfolioStore";
 import type { PropertyAddress, UnitType } from "../../context/portfolioStore";
 
 type UnitCategory = "RESIDENTIAL" | "COMMERCIAL";
 
-const UNIT_CATEGORIES: { value: UnitCategory; label: string }[] = [
-  { value: "RESIDENTIAL", label: "Locativ" },
-  { value: "COMMERCIAL", label: "Comercial" },
+const UNIT_CATEGORIES: [{ value: UnitCategory; label: string }, { value: UnitCategory; label: string }] = [
+  { value: "RESIDENTIAL", label: "Locativă" },
+  { value: "COMMERCIAL", label: "Comercială" },
 ];
 
 const UNIT_TYPES_BY_CATEGORY: Record<UnitCategory, { value: UnitType; label: string }[]> = {
@@ -24,8 +31,6 @@ const UNIT_TYPES_BY_CATEGORY: Record<UnitCategory, { value: UnitType; label: str
     { value: "OFFICE", label: "Birou" },
   ],
 };
-
-const ALL_UNIT_TYPES = Object.values(UNIT_TYPES_BY_CATEGORY).flat();
 
 function categoryForUnitType(type: UnitType): UnitCategory {
   return UNIT_TYPES_BY_CATEGORY.RESIDENTIAL.some((option) => option.value === type)
@@ -205,21 +210,21 @@ export function OwnerPortfolioScreen() {
 
   return (
     <FormScreen contentContainerStyle={[styles.container, styles.containerCompactTop]} showBrand={false} longForm>
-      {propertyFormOpen ? (
+      {propertyFormOpen && editingPropertyId === null ? (
         <View style={localStyles.card}>
           <Text style={styles.sectionLabel}>Adresă</Text>
           <View style={localStyles.row}>
-            <TextInput
-              style={[styles.input, localStyles.addressNumber]}
-              placeholder="Număr"
-              value={newAddress.streetNumber}
-              onChangeText={(value) => setNewAddress({ ...newAddress, streetNumber: value })}
-            />
             <TextInput
               style={[styles.input, localStyles.addressStreet]}
               placeholder="Stradă"
               value={newAddress.street}
               onChangeText={(value) => setNewAddress({ ...newAddress, street: value })}
+            />
+            <TextInput
+              style={[styles.input, localStyles.addressNumber]}
+              placeholder="Număr"
+              value={newAddress.streetNumber}
+              onChangeText={(value) => setNewAddress({ ...newAddress, streetNumber: value })}
             />
           </View>
           <TextInput
@@ -249,17 +254,11 @@ export function OwnerPortfolioScreen() {
           />
 
           <View style={localStyles.row}>
-            <TouchableOpacity
-              style={[styles.button, localStyles.flexButton, !addressValid && styles.buttonDisabled]}
-              onPress={handleSubmitProperty}
-              disabled={!addressValid}
-            >
-              <Text style={styles.buttonText}>
-                {editingPropertyId ? "Salvează proprietate" : "Adaugă proprietate"}
-              </Text>
+            <TouchableOpacity onPress={handleSubmitProperty} disabled={!addressValid}>
+              <Text style={!addressValid ? localStyles.actionMuted : localStyles.action}>Adaugă proprietate</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={localStyles.cancelButton} onPress={resetPropertyForm}>
-              <Text style={localStyles.cancelButtonText}>Anulează</Text>
+            <TouchableOpacity onPress={resetPropertyForm}>
+              <Text style={localStyles.actionMuted}>Anulează</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -269,15 +268,74 @@ export function OwnerPortfolioScreen() {
         </TouchableOpacity>
       )}
 
+      <View style={localStyles.sectionDivider} />
+      <Text style={styles.sectionLabel}>Proprietăți existente</Text>
+
       {properties.length === 0 ? (
         <Text style={styles.hint}>Nu ai încă nicio proprietate.</Text>
       ) : (
-        properties.map((property) => (
+        properties.map((property) =>
+          editingPropertyId === property.id ? (
+            <View key={property.id} style={[localStyles.card, localStyles.cardEditing]}>
+              <Text style={styles.sectionLabel}>Adresă</Text>
+              <View style={localStyles.row}>
+                <TextInput
+                  style={[styles.input, localStyles.addressStreet]}
+                  placeholder="Stradă"
+                  value={newAddress.street}
+                  onChangeText={(value) => setNewAddress({ ...newAddress, street: value })}
+                />
+                <TextInput
+                  style={[styles.input, localStyles.addressNumber]}
+                  placeholder="Număr"
+                  value={newAddress.streetNumber}
+                  onChangeText={(value) => setNewAddress({ ...newAddress, streetNumber: value })}
+                />
+              </View>
+              <TextInput
+                style={styles.input}
+                placeholder="Linie opțională (bloc, scară, etaj, ap.)"
+                value={newAddress.addressLine2}
+                onChangeText={(value) => setNewAddress({ ...newAddress, addressLine2: value })}
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="Cod poștal"
+                keyboardType="numbers-and-punctuation"
+                value={newAddress.postalCode}
+                onChangeText={(value) => setNewAddress({ ...newAddress, postalCode: value })}
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="Oraș"
+                value={newAddress.city}
+                onChangeText={(value) => setNewAddress({ ...newAddress, city: value })}
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="Județ"
+                value={newAddress.county}
+                onChangeText={(value) => setNewAddress({ ...newAddress, county: value })}
+              />
+
+              <View style={localStyles.row}>
+                <TouchableOpacity onPress={handleSubmitProperty} disabled={!addressValid}>
+                  <Text style={!addressValid ? localStyles.actionMuted : localStyles.action}>
+                    Salvează proprietate
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={resetPropertyForm}>
+                  <Text style={localStyles.actionMuted}>Anulează</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : (
           <View key={property.id} style={[localStyles.card, !property.active && localStyles.cardInactive]}>
             <Text style={localStyles.propertyAddress}>
-              {formatPropertyAddress(property)}
+              {formatPropertyStreetLine(property)}
               {!property.active ? " (dezactivată)" : ""}
             </Text>
+            <Text style={localStyles.propertyLocality}>{formatPropertyLocalityLine(property)}</Text>
 
             <View style={localStyles.row}>
               <TouchableOpacity onPress={() => openEditProperty(property.id)}>
@@ -310,14 +368,14 @@ export function OwnerPortfolioScreen() {
                       >
                         <View style={localStyles.unitInfo}>
                           <Text style={localStyles.unitLabel}>
-                            {unit.label} · {ALL_UNIT_TYPES.find((type) => type.value === unit.type)?.label}
+                            {unit.label} · {unitTypeLabel(unit.type)}
                           </Text>
                           <Text style={localStyles.unitEntityCaption}>{unitLegalEntity?.name ?? "—"}</Text>
                         </View>
                         <Text
                           style={unit.hasActiveTenancy ? localStyles.unitStatusRented : localStyles.unitStatusFree}
                         >
-                          {unit.hasActiveTenancy ? "închiriată" : "liberă"}
+                          {unit.hasActiveTenancy ? "Închiriată" : "Liberă"}
                         </Text>
                       </TouchableOpacity>
                     );
@@ -328,27 +386,15 @@ export function OwnerPortfolioScreen() {
 
             {unitFormPropertyId === property.id ? (
               <View style={localStyles.unitForm}>
-                <View style={styles.choiceRow}>
-                  {UNIT_CATEGORIES.map(({ value, label }) => (
-                    <TouchableOpacity
-                      key={value}
-                      style={[styles.choiceOption, newUnitCategory === value && styles.choiceOptionSelected]}
-                      onPress={() => {
-                        setNewUnitCategory(value);
-                        setNewUnitType(null);
-                      }}
-                    >
-                      <Text
-                        style={[
-                          styles.choiceOptionText,
-                          newUnitCategory === value && styles.choiceOptionTextSelected,
-                        ]}
-                      >
-                        {label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
+                <Toggle
+                  label="Tip unitate"
+                  options={UNIT_CATEGORIES}
+                  value={newUnitCategory}
+                  onChange={(value) => {
+                    setNewUnitCategory(value);
+                    setNewUnitType(null);
+                  }}
+                />
 
                 {newUnitCategory ? (
                   <View style={localStyles.optionList}>
@@ -428,18 +474,22 @@ export function OwnerPortfolioScreen() {
                   </Text>
                 </TouchableOpacity>
                 {legalEntities.length === 0 ? (
-                  <Text style={styles.hint}>Adaugă mai întâi o entitate legală mai sus.</Text>
+                  <Text style={styles.hint}>Adaugă mai întâi o entitate legală în panoul de Setări.</Text>
                 ) : null}
               </>
             )}
           </View>
-        ))
+          ),
+        )
       )}
     </FormScreen>
   );
 }
 
 const localStyles = StyleSheet.create({
+  // Marks the boundary between "add a property" (trigger/form) and the existing properties below —
+  // same as Închirieri's divider between the add-tenancy block and "Chirii existente".
+  sectionDivider: { height: StyleSheet.hairlineWidth, backgroundColor: "#ccc", marginTop: 16 },
   card: {
     borderWidth: 1,
     borderColor: "#ccc",
@@ -450,13 +500,13 @@ const localStyles = StyleSheet.create({
     backgroundColor: "#fff",
   },
   cardInactive: { opacity: 0.5 },
+  cardEditing: { borderColor: "#1a73e8" },
   propertyAddress: { fontSize: 16, fontWeight: "600" },
+  propertyLocality: { fontSize: 13, color: "#8e8e93", marginTop: 2 },
   row: { flexDirection: "row", gap: 16, alignItems: "center" },
-  flexButton: { flex: 1, marginTop: 0 },
-  cancelButton: { paddingVertical: 14, paddingHorizontal: 4 },
-  cancelButtonText: { color: "#8e8e93", fontWeight: "600" },
   action: { color: "#1a73e8", fontWeight: "600" },
-  actionMuted: { color: "#8e8e93" },
+  // Slightly bolder than plain text so Anulează reads a bit more prominently, still neutral grey.
+  actionMuted: { color: "#8e8e93", fontWeight: "600" },
   actionDestructive: { color: "#d32f2f", fontWeight: "600" },
   addLinkDisabled: { color: "#c7c7cc" },
   addressNumber: { flex: 1 },

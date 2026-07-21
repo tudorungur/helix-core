@@ -49,4 +49,9 @@ export const formStyles = StyleSheet.create({
     marginTop: 8,
   },
   sectionTriggerText: { color: "#1a73e8", fontWeight: "600" },
+  // Greyed-out variant of sectionTrigger — still tappable (e.g. Închirieri's "+ Adaugă chirie" when
+  // there's no free unit yet, which navigates to Portofoliu instead of opening the form), just
+  // visually reads as blocked rather than the normal blue "ready to use" state.
+  sectionTriggerDisabled: { borderColor: "#c7c7cc" },
+  sectionTriggerTextDisabled: { color: "#8e8e93" },
 });
