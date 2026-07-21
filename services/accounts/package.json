@@ -8,12 +8,19 @@
     "build": "tsc -b",
     "typecheck": "tsc --noEmit",
     "lint": "echo \"accounts: lint pending\"",
-    "test": "echo \"accounts: test pending\""
+    "test": "echo \"accounts: test pending\"",
+    "package": "esbuild src/index.ts --bundle --platform=node --target=node22 --format=cjs --outfile=dist/bundle.cjs --external:@aws-sdk/* && cd dist && rm -f bundle.mjs lambda.zip && zip -q -r lambda.zip bundle.cjs"
   },
   "dependencies": {
-    "@helix-core/domain": "workspace:*"
+    "@aws-sdk/client-secrets-manager": "^3.1091.0",
+    "@helix-core/domain": "workspace:*",
+    "drizzle-orm": "^0.38.0",
+    "zod": "^3.24.0"
   },
   "devDependencies": {
+    "@types/aws-lambda": "^8.10.162",
+    "@types/node": "^26.1.1",
+    "esbuild": "^0.28.1",
     "typescript": "^5.7.0"
   }
 }

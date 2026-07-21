@@ -9,8 +9,10 @@ import {
 } from "react-native";
 import { CognitoUser, CognitoUserAttribute } from "amazon-cognito-identity-js";
 
+import { createAccount, upsertSelf } from "../../api/accounts";
 import { useAuthStore, userPool } from "../../auth/authStore";
 import { FormScreen } from "../../components/FormScreen";
+import { useAccountStore } from "../../context/accountStore";
 import { useContextStore } from "../../context/contextStore";
 
 type Role = "OWNER" | "TENANT";
@@ -46,6 +48,7 @@ export function SignUpScreen() {
 
   const signIn = useAuthStore((state) => state.signIn);
   const setAvailableContexts = useContextStore((state) => state.setAvailableContexts);
+  const fetchAccounts = useAccountStore((state) => state.fetchAccounts);
 
   const passwordsMatch = password.length > 0 && password === confirmPassword;
   const roleValid = role !== null;
@@ -103,17 +106,21 @@ export function SignUpScreen() {
       // contextStore.ts for why this is a session-only guess, not real membership data.
       if (role) setAvailableContexts([role]);
 
-      // TODO(backend): no API exists yet — this is where the call goes once it does. OWNER:
-      // `users(name)` + create `accounts(name)` (name defaults to the person's own name — just a
-      // workspace label, Section 3.1) + `account_membership(role=OWNER)` — zero `legal_entities` yet,
-      // the first one gets created the first time it's needed (Section 4.3). TENANT: just a `users`
-      // row for now — they have no account/tenancy yet, that's created later when they add a tenancy
-      // via the association code from inside the app (Section 4.4, also not built yet). For now
-      // nothing filled in here is persisted past this log.
+      // Section 4.1 onboarding: OWNER creates accounts(name) + account_membership(role=OWNER) (name
+      // defaults to the person's own name — Section 3.1), TENANT just upserts their users row (no
+      // account until their first tenancy, §4.4, not built yet). AppStack also fetches accounts on
+      // mount, but that can race ahead of sign-up finishing (signIn()'s state flip and this
+      // continuation aren't guaranteed to be ordered) — explicitly re-fetching here overwrites
+      // whatever that earlier, possibly-empty race left behind.
       const name = `${prenume.trim()} ${nume.trim()}`.trim();
-      console.log("Pending user creation payload:", { role, name });
-    } catch {
-      // error state already set above
+      if (role === "OWNER") {
+        await createAccount(name);
+        await fetchAccounts();
+      } else {
+        await upsertSelf(name);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Nu am putut finaliza înregistrarea");
     } finally {
       setSubmitting(false);
     }

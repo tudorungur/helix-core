@@ -52,6 +52,8 @@ export async function handler(event: APIGatewayProxyEventV2WithJWTAuthorizer): P
         await handlers.deleteProperty(db, access, accountId, params.id!);
         return json(204, null);
 
+      case "GET /accounts/{accountId}/units":
+        return json(200, await handlers.listUnits(db, access, accountId));
       case "POST /accounts/{accountId}/properties/{propertyId}/units":
         return json(
           201,

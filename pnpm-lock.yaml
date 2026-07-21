@@ -100,10 +100,28 @@ importers:
 
   services/accounts:
     dependencies:
+      '@aws-sdk/client-secrets-manager':
+        specifier: ^3.1091.0
+        version: 3.1091.0
       '@helix-core/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      drizzle-orm:
+        specifier: ^0.38.0
+        version: 0.38.4(@aws-sdk/client-rds-data@3.1091.0)(@types/react@19.2.17)(postgres@3.4.9)(react@19.2.3)
+      zod:
+        specifier: ^3.24.0
+        version: 3.25.76
     devDependencies:
+      '@types/aws-lambda':
+        specifier: ^8.10.162
+        version: 8.10.162
+      '@types/node':
+        specifier: ^26.1.1
+        version: 26.1.1
+      esbuild:
+        specifier: ^0.28.1
+        version: 0.28.1
       typescript:
         specifier: ^5.7.0
         version: 5.9.3

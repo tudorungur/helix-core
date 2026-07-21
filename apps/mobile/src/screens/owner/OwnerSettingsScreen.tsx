@@ -85,6 +85,10 @@ export function OwnerSettingsScreen() {
     setFormOpen(true);
   };
 
+  const handleApiError = (error: unknown) => {
+    Alert.alert("Eroare", error instanceof Error ? error.message : "A apărut o eroare neașteptată.");
+  };
+
   const submitForm = () => {
     if (!formValid || !legalForm) return;
     const input = {
@@ -99,12 +103,28 @@ export function OwnerSettingsScreen() {
       // like invoice series without noticing.
       Alert.alert("Confirmi modificările?", `Se salvează modificările pentru ${name.trim()}.`, [
         { text: "Anulează", style: "cancel" },
-        { text: "Confirmă", onPress: () => { updateLegalEntity(editingId, input); resetForm(); } },
+        {
+          text: "Confirmă",
+          onPress: async () => {
+            try {
+              await updateLegalEntity(editingId, input);
+              resetForm();
+            } catch (error) {
+              handleApiError(error);
+            }
+          },
+        },
       ]);
       return;
     }
-    addLegalEntity(input);
-    resetForm();
+    (async () => {
+      try {
+        await addLegalEntity(input);
+        resetForm();
+      } catch (error) {
+        handleApiError(error);
+      }
+    })();
   };
 
   const handleDelete = (id: string, entityName: string) => {
@@ -116,7 +136,17 @@ export function OwnerSettingsScreen() {
         : `${entityName} va fi ștearsă definitiv.`,
       [
         { text: "Anulează", style: "cancel" },
-        { text: "Șterge", style: "destructive", onPress: () => deleteLegalEntity(id) },
+        {
+          text: "Șterge",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await deleteLegalEntity(id);
+            } catch (error) {
+              handleApiError(error);
+            }
+          },
+        },
       ],
     );
   };

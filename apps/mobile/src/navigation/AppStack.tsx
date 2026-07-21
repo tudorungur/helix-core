@@ -1,9 +1,12 @@
+import { useEffect } from "react";
 import { getFocusedRouteNameFromRoute } from "@react-navigation/native";
 import type { RouteProp } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
+import { useAccountStore } from "../context/accountStore";
 import { useContextStore } from "../context/contextStore";
 import type { AppContext } from "../context/contextStore";
+import { usePortfolioStore } from "../context/portfolioStore";
 import { ContextTitle } from "./ContextTitle";
 import { OWNER_TAB_LABELS, OwnerTabs } from "./OwnerTabs";
 import type { OwnerTabsParamList } from "./OwnerTabs";
@@ -37,6 +40,20 @@ function getHeaderTitle(activeContext: AppContext, route: RouteProp<AppStackPara
 // the available contexts are currently mocked — no backend to fetch real memberships from yet).
 export function AppStack() {
   const activeContext = useContextStore((state) => state.activeContext);
+  const fetchAccounts = useAccountStore((state) => state.fetchAccounts);
+  const activeAccountId = useAccountStore((state) => state.activeAccountId);
+  const fetchPortfolio = usePortfolioStore((state) => state.fetchPortfolio);
+
+  // Resolves `activeAccountId` (Section 3.2 step 4) once per authenticated session — every
+  // account-scoped request (Portofoliu/Setări's real API calls) needs it.
+  useEffect(() => {
+    fetchAccounts();
+  }, [fetchAccounts]);
+
+  // Once an account resolves, load legal entities/properties/units for it (Section 4.3).
+  useEffect(() => {
+    if (activeAccountId) fetchPortfolio();
+  }, [activeAccountId, fetchPortfolio]);
 
   return (
     <Stack.Navigator>

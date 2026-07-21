@@ -81,6 +81,10 @@ export function OwnerPortfolioScreen() {
   const deleteUnit = usePortfolioStore((state) => state.deleteUnit);
   const setUnitActive = usePortfolioStore((state) => state.setUnitActive);
 
+  const handleApiError = (error: unknown) => {
+    Alert.alert("Eroare", error instanceof Error ? error.message : "A apărut o eroare neașteptată.");
+  };
+
   // ---- Property form (shared by add + edit) ----
   const [propertyFormOpen, setPropertyFormOpen] = useState(false);
   const [editingPropertyId, setEditingPropertyId] = useState<string | null>(null);
@@ -127,22 +131,42 @@ export function OwnerPortfolioScreen() {
         { text: "Anulează", style: "cancel" },
         {
           text: "Confirmă",
-          onPress: () => {
-            updateProperty(editingPropertyId, address);
-            resetPropertyForm();
+          onPress: async () => {
+            try {
+              await updateProperty(editingPropertyId, address);
+              resetPropertyForm();
+            } catch (error) {
+              handleApiError(error);
+            }
           },
         },
       ]);
       return;
     }
-    addProperty(address);
-    resetPropertyForm();
+    (async () => {
+      try {
+        await addProperty(address);
+        resetPropertyForm();
+      } catch (error) {
+        handleApiError(error);
+      }
+    })();
   };
 
   const handleDeleteProperty = (id: string, label: string) => {
     Alert.alert("Ștergi proprietatea?", `${label} și unitățile ei vor fi șterse definitiv.`, [
       { text: "Anulează", style: "cancel" },
-      { text: "Șterge", style: "destructive", onPress: () => deleteProperty(id) },
+      {
+        text: "Șterge",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await deleteProperty(id);
+          } catch (error) {
+            handleApiError(error);
+          }
+        },
+      },
     ]);
   };
 
@@ -217,16 +241,26 @@ export function OwnerPortfolioScreen() {
         { text: "Anulează", style: "cancel" },
         {
           text: "Confirmă",
-          onPress: () => {
-            updateUnit(editingUnitId, newUnitLegalEntityId, newUnitLabel.trim(), newUnitType, newUnitUtilities);
-            resetUnitForm();
+          onPress: async () => {
+            try {
+              await updateUnit(editingUnitId, newUnitLegalEntityId, newUnitLabel.trim(), newUnitType, newUnitUtilities);
+              resetUnitForm();
+            } catch (error) {
+              handleApiError(error);
+            }
           },
         },
       ]);
       return;
     }
-    addUnit(unitFormPropertyId, newUnitLegalEntityId, newUnitLabel.trim(), newUnitType, newUnitUtilities);
-    resetUnitForm();
+    (async () => {
+      try {
+        await addUnit(unitFormPropertyId, newUnitLegalEntityId, newUnitLabel.trim(), newUnitType, newUnitUtilities);
+        resetUnitForm();
+      } catch (error) {
+        handleApiError(error);
+      }
+    })();
   };
 
   const handleDeleteUnit = (id: string, label: string, hasActiveTenancy: boolean) => {
@@ -240,9 +274,13 @@ export function OwnerPortfolioScreen() {
         {
           text: "Șterge",
           style: "destructive",
-          onPress: () => {
-            deleteUnit(id);
-            resetUnitForm();
+          onPress: async () => {
+            try {
+              await deleteUnit(id);
+              resetUnitForm();
+            } catch (error) {
+              handleApiError(error);
+            }
           },
         },
       ],
@@ -530,9 +568,14 @@ export function OwnerPortfolioScreen() {
                   {editingUnitId ? (
                     <>
                       <TouchableOpacity
-                        onPress={() => {
+                        onPress={async () => {
                           const unit = units.find((u) => u.id === editingUnitId);
-                          if (unit) setUnitActive(unit.id, !unit.active);
+                          if (!unit) return;
+                          try {
+                            await setUnitActive(unit.id, !unit.active);
+                          } catch (error) {
+                            handleApiError(error);
+                          }
                         }}
                       >
                         <Text style={localStyles.action}>

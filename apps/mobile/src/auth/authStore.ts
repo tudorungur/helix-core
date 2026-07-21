@@ -22,6 +22,13 @@ const SECURE_STORE_KEYS = {
   refreshToken: "helix.refreshToken",
 } as const;
 
+// Used by src/api/client.ts to authorize every backend request — the ID token, not the access
+// token: Cognito access tokens don't carry an `aud` claim (they have `client_id` instead), and the
+// API Gateway HTTP API JWT authorizer (Section 6) checks `aud` specifically.
+export async function getIdToken(): Promise<string | null> {
+  return SecureStore.getItemAsync(SECURE_STORE_KEYS.idToken);
+}
+
 async function persistSession(session: CognitoUserSession) {
   await SecureStore.setItemAsync(SECURE_STORE_KEYS.accessToken, session.getAccessToken().getJwtToken());
   await SecureStore.setItemAsync(SECURE_STORE_KEYS.idToken, session.getIdToken().getJwtToken());

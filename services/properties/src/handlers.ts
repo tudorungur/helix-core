@@ -163,6 +163,21 @@ const unitInput = z.object({
   active: z.boolean().optional(),
 });
 
+// Flat, account-wide — matches the mobile client's own flat `units` array (not nested per
+// property), which needs to know about every unit up front (Închirieri's picker, Portofoliu's list)
+// without a separate request per property.
+export async function listUnits(db: Db, access: AccountAccess | null, accountId: string) {
+  if (!access) throw new HttpError(403, "No membership on this account");
+  const rows = await db
+    .select({ unit: units })
+    .from(units)
+    .innerJoin(properties, eq(properties.id, units.propertyId))
+    .where(eq(properties.accountId, accountId));
+  const all = rows.map((row) => row.unit);
+  if (access.role === "OWNER") return all;
+  return all.filter((unit) => access.propertyIds.has(unit.propertyId) || access.unitIds.has(unit.id));
+}
+
 async function getPropertyOrThrow(db: Db, accountId: string, propertyId: string) {
   const [property] = await db
     .select()

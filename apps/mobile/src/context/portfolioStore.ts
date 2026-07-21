@@ -1,5 +1,9 @@
 import { create } from "zustand";
 
+import { legalEntitiesApi, propertiesApi, unitsApi } from "../api/properties";
+import type { ApiLegalEntity, ApiProperty, ApiUnit } from "../api/properties";
+import { useAccountStore } from "./accountStore";
+
 export type LegalForm = "PF" | "PFA" | "II" | "IF" | "SRL" | "SA";
 export type LegalEntityType = "UNREGISTERED_INDIVIDUAL" | "REGISTERED_INDIVIDUAL" | "REGISTERED_COMPANY";
 export type UnitType = "APARTMENT" | "HOUSE" | "RETAIL" | "WAREHOUSE" | "OFFICE";
@@ -55,7 +59,9 @@ export type Property = PropertyAddress & {
 // unitPrice/fixedAmount/quotaPercentage fields depending on that basis. Here it's just a flat
 // enabled toggle + a single monthly price (always RON, same as the real schema has no currency on
 // this table) — enough for the mobile mock's toggle+price UI without building the full 4-way tariff
-// picker yet.
+// picker yet. **Still entirely client-side** — no unit_utilities endpoint exists in
+// services/properties yet, so this doesn't survive a fresh app launch even though legal
+// entities/properties/units themselves now do (Section 4.3's API).
 export type UnitUtility = {
   type: UtilityType;
   enabled: boolean;
@@ -69,6 +75,8 @@ export type Unit = {
   legalEntityId: string;
   label: string;
   type: UnitType;
+  // Client-side only (Section 4.4 not wired to a backend yet) — true the moment the owner creates a
+  // (mocked) tenancy on this unit, independent of the real `active`/API-backed fields below.
   hasActiveTenancy: boolean;
   // Deactivating hides this unit from new-tenancy eligibility without deleting it — distinct from
   // an actual delete (Section 4.3). Lives on the unit, not the property: a building can have some
@@ -83,7 +91,9 @@ export type RentCurrency = "EUR" | "RON";
 
 // Section 4.4 — a tenancy created on a unit, persisted so the association_code stays accessible
 // (not just shown once at creation time and thrown away). Excludes visually ambiguous characters
-// (0/O, 1/I) in the code — it gets read off one screen and typed into another by hand.
+// (0/O, 1/I) in the code — it gets read off one screen and typed into another by hand. **Still
+// entirely mocked/client-side — no tenancies backend exists yet, only legal entities/properties/
+// units (Section 4.3) are real as of this session.**
 export type Tenancy = {
   id: string;
   unitId: string;
@@ -180,6 +190,18 @@ export function legalEntityTypeFor(legalForm: LegalForm): LegalEntityType {
   return "REGISTERED_COMPANY"; // SRL and SA — legal_entities.type doesn't distinguish them either
 }
 
+// The real `legal_entities` table only stores the derived `type`, not the specific `legalForm` that
+// produced it (Section 3.1 — intentional, since e.g. PFA/II/IF "don't distinguish" for any real
+// purpose). So a legal entity fetched back from the API can't recover its *exact* original
+// `legalForm` — this picks a representative one per type just so the mobile form's picker has
+// something valid pre-selected when editing. Saving without changing it round-trips fine (same
+// `type`); it just can't tell PFA from II from IF (or SRL from SA) after a fetch.
+const REPRESENTATIVE_LEGAL_FORM: Record<LegalEntityType, LegalForm> = {
+  UNREGISTERED_INDIVIDUAL: "PF",
+  REGISTERED_INDIVIDUAL: "PFA",
+  REGISTERED_COMPANY: "SRL",
+};
+
 // Single-line form — for contexts that need a plain string (Alert confirm messages), not the
 // two-line tile display below.
 export function formatPropertyAddress(address: PropertyAddress): string {
@@ -199,32 +221,80 @@ export function formatPropertyLocalityLine(address: PropertyAddress): string {
   return `${address.county} / ${address.city}`;
 }
 
+function fromApiLegalEntity(api: ApiLegalEntity): LegalEntity {
+  return {
+    id: api.id,
+    legalForm: REPRESENTATIVE_LEGAL_FORM[api.type],
+    type: api.type,
+    name: api.legalName ?? "",
+    cuiCnp: api.cuiCnp ?? undefined,
+    vatPayer: api.vatPayer,
+    invoiceSeries: api.invoiceSeries ?? undefined,
+  };
+}
+
+function fromApiProperty(api: ApiProperty): Property {
+  return {
+    id: api.id,
+    streetNumber: api.streetNumber,
+    street: api.street,
+    addressLine2: api.addressLine2 ?? undefined,
+    postalCode: api.postalCode,
+    city: api.city,
+    county: api.county,
+  };
+}
+
+// Preserves the client-only fields (hasActiveTenancy, utilities) across a re-fetch by looking up
+// the unit that was already in state, instead of resetting them to defaults every time.
+function fromApiUnit(api: ApiUnit, existing: Unit | undefined): Unit {
+  return {
+    id: api.id,
+    propertyId: api.propertyId,
+    legalEntityId: api.legalEntityId,
+    label: api.label,
+    type: api.type,
+    active: api.active,
+    hasActiveTenancy: existing?.hasActiveTenancy ?? false,
+    utilities: existing?.utilities ?? defaultUnitUtilities(),
+  };
+}
+
+function currentAccountId(): string {
+  const accountId = useAccountStore.getState().activeAccountId;
+  if (!accountId) throw new Error("Niciun cont încărcat încă");
+  return accountId;
+}
+
 type PortfolioState = {
   legalEntities: LegalEntity[];
   properties: Property[];
   units: Unit[];
-  addLegalEntity: (input: LegalEntityInput) => LegalEntity;
-  updateLegalEntity: (id: string, input: LegalEntityInput) => void;
-  deleteLegalEntity: (id: string) => void;
-  addProperty: (address: PropertyAddress) => Property;
-  updateProperty: (id: string, address: PropertyAddress) => void;
-  deleteProperty: (id: string) => void;
+  loading: boolean;
+  error: string | null;
+  fetchPortfolio: () => Promise<void>;
+  addLegalEntity: (input: LegalEntityInput) => Promise<LegalEntity>;
+  updateLegalEntity: (id: string, input: LegalEntityInput) => Promise<void>;
+  deleteLegalEntity: (id: string) => Promise<void>;
+  addProperty: (address: PropertyAddress) => Promise<Property>;
+  updateProperty: (id: string, address: PropertyAddress) => Promise<void>;
+  deleteProperty: (id: string) => Promise<void>;
   addUnit: (
     propertyId: string,
     legalEntityId: string,
     label: string,
     type: UnitType,
     utilities: UnitUtility[],
-  ) => Unit;
+  ) => Promise<Unit>;
   updateUnit: (
     id: string,
     legalEntityId: string,
     label: string,
     type: UnitType,
     utilities: UnitUtility[],
-  ) => void;
-  deleteUnit: (id: string) => void;
-  setUnitActive: (id: string, active: boolean) => void;
+  ) => Promise<void>;
+  deleteUnit: (id: string) => Promise<void>;
+  setUnitActive: (id: string, active: boolean) => Promise<void>;
   tenancies: Tenancy[];
   addTenancy: (unitId: string, startDate: string, rentAmount: number, rentCurrency: RentCurrency) => Tenancy;
   updateTenancy: (id: string, startDate: string, rentAmount: number, rentCurrency: RentCurrency) => void;
@@ -232,100 +302,119 @@ type PortfolioState = {
   associateTenancyByCode: (code: string) => "associated" | "already_associated" | "not_found";
 };
 
-let nextId = 1;
-const generateId = () => String(nextId++);
-
 // Section 4.3 — the owner's fiscal identities (legal_entities) and physical inventory (properties →
-// units), independent of who's renting what. In-memory only, mocked pending a backend (same pattern
-// as contextStore.ts) — nothing here survives a fresh app launch. Section 4.4's Tenancies flow reads
-// `units` and picks one that's `active` with `hasActiveTenancy: false` rather than creating a unit
-// inline; `addTenancy` both persists the `Tenancy` (so its association_code stays accessible, not
-// just shown once) and flips that unit out of the "available" pool in the same update. A single
-// account can hold multiple `legalEntities` — each `unit` (not property) picks exactly one, which
-// decides that unit's e-Factura eligibility (Section 1's note on the label being per-unit, not
-// per-property or per-account).
+// units), independent of who's renting what. Legal entities/properties/units are now **real**,
+// backed by services/properties (Section 6) — every add/update/delete/fetch below calls the live
+// API, scoped to `useAccountStore`'s `activeAccountId`. Tenancies (Section 4.4) are **still entirely
+// mocked/client-side** — no backend for those yet, so `units.hasActiveTenancy` and each unit's
+// `utilities` stay local-only, preserved across re-fetches by `fromApiUnit` rather than being part
+// of what's persisted server-side.
 export const usePortfolioStore = create<PortfolioState>((set, get) => ({
   legalEntities: [],
   properties: [],
   units: [],
-  addLegalEntity: ({ legalForm, name, cuiCnp, vatPayer, invoiceSeries }) => {
-    const legalEntity: LegalEntity = {
-      id: generateId(),
-      legalForm,
-      type: legalEntityTypeFor(legalForm),
-      name,
-      cuiCnp,
-      vatPayer,
-      invoiceSeries,
-    };
+  loading: false,
+  error: null,
+
+  fetchPortfolio: async () => {
+    set({ loading: true, error: null });
+    try {
+      const accountId = currentAccountId();
+      const [legalEntities, properties, units] = await Promise.all([
+        legalEntitiesApi.list(accountId),
+        propertiesApi.list(accountId),
+        unitsApi.list(accountId),
+      ]);
+      const existingUnits = get().units;
+      set({
+        legalEntities: legalEntities.map(fromApiLegalEntity),
+        properties: properties.map(fromApiProperty),
+        units: units.map((unit) => fromApiUnit(unit, existingUnits.find((u) => u.id === unit.id))),
+        loading: false,
+      });
+    } catch (error) {
+      set({ loading: false, error: error instanceof Error ? error.message : "Nu am putut încărca portofoliul" });
+    }
+  },
+
+  addLegalEntity: async (input) => {
+    const created = await legalEntitiesApi.create(currentAccountId(), input);
+    const legalEntity = fromApiLegalEntity(created);
     set((state) => ({ legalEntities: [...state.legalEntities, legalEntity] }));
     return legalEntity;
   },
-  updateLegalEntity: (id, { legalForm, name, cuiCnp, vatPayer, invoiceSeries }) => {
+  updateLegalEntity: async (id, input) => {
+    const updated = await legalEntitiesApi.update(currentAccountId(), id, input);
+    const legalEntity = fromApiLegalEntity(updated);
     set((state) => ({
-      legalEntities: state.legalEntities.map((entity) =>
-        entity.id === id
-          ? { ...entity, legalForm, type: legalEntityTypeFor(legalForm), name, cuiCnp, vatPayer, invoiceSeries }
-          : entity,
-      ),
+      legalEntities: state.legalEntities.map((entity) => (entity.id === id ? legalEntity : entity)),
     }));
   },
-  deleteLegalEntity: (id) => {
+  deleteLegalEntity: async (id) => {
+    await legalEntitiesApi.remove(currentAccountId(), id);
     set((state) => ({
       legalEntities: state.legalEntities.filter((entity) => entity.id !== id),
     }));
   },
-  addProperty: (address) => {
-    const property: Property = { id: generateId(), ...address };
+
+  addProperty: async (address) => {
+    const created = await propertiesApi.create(currentAccountId(), address);
+    const property = fromApiProperty(created);
     set((state) => ({ properties: [...state.properties, property] }));
     return property;
   },
-  updateProperty: (id, address) => {
+  updateProperty: async (id, address) => {
+    const updated = await propertiesApi.update(currentAccountId(), id, address);
+    const property = fromApiProperty(updated);
     set((state) => ({
-      properties: state.properties.map((property) =>
-        property.id === id ? { ...property, ...address } : property,
-      ),
+      properties: state.properties.map((existing) => (existing.id === id ? property : existing)),
     }));
   },
-  deleteProperty: (id) => {
+  deleteProperty: async (id) => {
+    await propertiesApi.remove(currentAccountId(), id);
     set((state) => ({
       properties: state.properties.filter((property) => property.id !== id),
       units: state.units.filter((unit) => unit.propertyId !== id),
     }));
   },
-  addUnit: (propertyId, legalEntityId, label, type, utilities) => {
-    const unit: Unit = {
-      id: generateId(),
-      propertyId,
-      legalEntityId,
-      label,
-      type,
-      hasActiveTenancy: false,
-      active: true,
-      utilities,
-    };
+
+  addUnit: async (propertyId, legalEntityId, label, type, utilities) => {
+    const created = await unitsApi.create(currentAccountId(), propertyId, { legalEntityId, label, type });
+    const unit = fromApiUnit(created, undefined);
+    unit.utilities = utilities;
     set((state) => ({ units: [...state.units, unit] }));
     return unit;
   },
-  updateUnit: (id, legalEntityId, label, type, utilities) => {
-    set((state) => ({
-      units: state.units.map((unit) =>
-        unit.id === id ? { ...unit, legalEntityId, label, type, utilities } : unit,
-      ),
-    }));
+  updateUnit: async (id, legalEntityId, label, type, utilities) => {
+    const existing = get().units.find((unit) => unit.id === id);
+    if (!existing) throw new Error("Unitatea nu mai există local");
+    const updated = await unitsApi.update(currentAccountId(), existing.propertyId, id, {
+      legalEntityId,
+      label,
+      type,
+    });
+    const unit = fromApiUnit(updated, existing);
+    unit.utilities = utilities;
+    set((state) => ({ units: state.units.map((u) => (u.id === id ? unit : u)) }));
   },
-  deleteUnit: (id) => {
+  deleteUnit: async (id) => {
+    const existing = get().units.find((unit) => unit.id === id);
+    if (!existing) return;
+    await unitsApi.remove(currentAccountId(), existing.propertyId, id);
     set((state) => ({ units: state.units.filter((unit) => unit.id !== id) }));
   },
-  setUnitActive: (id, active) => {
-    set((state) => ({
-      units: state.units.map((unit) => (unit.id === id ? { ...unit, active } : unit)),
-    }));
+  setUnitActive: async (id, active) => {
+    const existing = get().units.find((unit) => unit.id === id);
+    if (!existing) return;
+    const updated = await unitsApi.update(currentAccountId(), existing.propertyId, id, { active });
+    const unit = fromApiUnit(updated, existing);
+    set((state) => ({ units: state.units.map((u) => (u.id === id ? unit : u)) }));
   },
+
   tenancies: [],
   addTenancy: (unitId, startDate, rentAmount, rentCurrency) => {
     const tenancy: Tenancy = {
-      id: generateId(),
+      id: crypto.randomUUID(),
       unitId,
       startDate,
       rentAmount,
