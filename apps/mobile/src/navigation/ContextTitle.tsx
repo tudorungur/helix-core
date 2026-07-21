@@ -1,4 +1,6 @@
-import { ActionSheetIOS, Alert, Platform, StyleSheet, Text, TouchableOpacity } from "react-native";
+import { useState } from "react";
+import { Alert, Modal, Pressable, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useContextStore } from "../context/contextStore";
 import type { AppContext } from "../context/contextStore";
@@ -6,19 +8,27 @@ import type { AppContext } from "../context/contextStore";
 const LABELS: Record<AppContext, string> = { OWNER: "Proprietar", TENANT: "Chiriaș" };
 const CONTEXTS: AppContext[] = ["OWNER", "TENANT"];
 
+// Rough native-stack header height (safe-area top + standard nav bar) — used only to anchor the
+// dropdown panel below the chip; a few pixels off either way doesn't matter visually.
+const HEADER_HEIGHT = 44;
+
 // AppStack's headerLeft (Section 3.2 point 4 / Section 5.1) — a highlighted dropdown-style chip
-// ("Proprietar ▾"), left-aligned. Tapping opens a native action sheet with both contexts — the
-// standard iOS pattern for a workspace/persona switcher (Mail's account switcher, Slack's
-// workspace picker), just rendered as a chip instead of the plain nav-bar title. Always offers
-// both contexts, not just the ones the user has — picking one they don't yet prompts to activate
-// it (§4.1 "Become a landlord" / §4.4 linking a tenancy via association code).
+// ("Proprietar ▾"), left-aligned. Tapping expands an in-place dropdown panel right under the chip
+// (a transparent Modal + Pressable backdrop just to catch outside-taps, not a system action
+// sheet/alert) — ActionSheetIOS/Alert.alert were tried first and replaced because they read as a
+// full system overlay taking over the screen, not an in-place expansion. Always offers both
+// contexts, not just the ones the user has — picking one they don't yet prompts to activate it
+// (§4.1 "Become a landlord" / §4.4 linking a tenancy via association code).
 export function ContextTitle() {
   const activeContext = useContextStore((state) => state.activeContext);
   const availableContexts = useContextStore((state) => state.availableContexts);
   const setActiveContext = useContextStore((state) => state.setActiveContext);
   const addContext = useContextStore((state) => state.addContext);
+  const insets = useSafeAreaInsets();
+  const [open, setOpen] = useState(false);
 
   const activate = (context: AppContext) => {
+    setOpen(false);
     if (context === activeContext) return;
 
     if (availableContexts.includes(context)) {
@@ -48,39 +58,31 @@ export function ContextTitle() {
     );
   };
 
-  const openPicker = () => {
-    const optionLabels = CONTEXTS.map((context) =>
-      context === activeContext ? `${LABELS[context]} ✓` : LABELS[context],
-    );
-
-    if (Platform.OS === "ios") {
-      ActionSheetIOS.showActionSheetWithOptions(
-        {
-          title: "Alege contextul",
-          options: [...optionLabels, "Anulează"],
-          cancelButtonIndex: optionLabels.length,
-        },
-        (index) => {
-          if (index < CONTEXTS.length) activate(CONTEXTS[index]);
-        },
-      );
-      return;
-    }
-
-    Alert.alert("Alege contextul", undefined, [
-      ...CONTEXTS.map((context, index) => ({
-        text: optionLabels[index],
-        onPress: () => activate(context),
-      })),
-      { text: "Anulează", style: "cancel" as const },
-    ]);
-  };
-
   return (
-    <TouchableOpacity style={styles.chip} onPress={openPicker} hitSlop={8}>
-      <Text style={styles.text}>{LABELS[activeContext]}</Text>
-      <Text style={styles.chevron}>▾</Text>
-    </TouchableOpacity>
+    <>
+      <TouchableOpacity style={styles.chip} onPress={() => setOpen((current) => !current)} hitSlop={8}>
+        <Text style={styles.text}>{LABELS[activeContext]}</Text>
+        <Text style={styles.chevron}>{open ? "▴" : "▾"}</Text>
+      </TouchableOpacity>
+      {open ? (
+        <Modal transparent visible animationType="fade" onRequestClose={() => setOpen(false)}>
+          <Pressable style={styles.backdrop} onPress={() => setOpen(false)}>
+            <View style={[styles.dropdown, { top: insets.top + HEADER_HEIGHT }]}>
+              {CONTEXTS.map((context, index) => (
+                <TouchableOpacity
+                  key={context}
+                  style={[styles.option, index > 0 && styles.optionDivider]}
+                  onPress={() => activate(context)}
+                >
+                  <Text style={styles.optionText}>{LABELS[context]}</Text>
+                  {context === activeContext ? <Text style={styles.optionCheck}>✓</Text> : null}
+                </TouchableOpacity>
+              ))}
+            </View>
+          </Pressable>
+        </Modal>
+      ) : null}
+    </>
   );
 }
 
@@ -95,5 +97,31 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   text: { fontSize: 15, fontWeight: "600", color: "#1a73e8" },
-  chevron: { fontSize: 12, color: "#1a73e8" },
+  chevron: { fontSize: 22, color: "#1a73e8" },
+  backdrop: { flex: 1 },
+  dropdown: {
+    position: "absolute",
+    left: 16,
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#ccc",
+    overflow: "hidden",
+    minWidth: 160,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  option: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  optionDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#ccc" },
+  optionText: { fontSize: 15, fontWeight: "600", color: "#1c1c1e" },
+  optionCheck: { color: "#1a73e8", fontWeight: "700", fontSize: 16 },
 });

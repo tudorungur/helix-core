@@ -120,15 +120,18 @@ users (Cognito sub) ──┬── account_memberships ──> accounts ──>
   property/unit explicitly assigned to a collaborator.
 - **properties** — just the building — an address container, nothing more. `id`, `account_id`,
   `street_number`, `street`, `address_line2 NULL` (bloc/scară/etaj/ap., optional), `postal_code`, `city`,
-  `county`, `active bool` (default `true`) — deactivating hides a property, and every unit under it, from
-  new-tenancy eligibility (Section 4.4) without deleting it; a genuine delete removes the row (and its
-  units) outright. No `type` and no `legal_entity_id` here — both belong on `units` (below), since a single
-  building can hold units of different types and different fiscal identities.
+  `county`. No `type`, no `legal_entity_id`, and no `active` flag here — all three belong on `units`
+  (below): a single building can hold units of different types, different fiscal identities, and — since a
+  landlord can take one unit off the market while others stay rentable — different active/inactive states.
+  A genuine delete of a property removes the row (and its units) outright.
 - **units** — the actual rentable/invoiceable thing. `id`, `property_id`, `legal_entity_id`, `label`,
-  `type [APARTMENT|HOUSE|RETAIL|WAREHOUSE|OFFICE]`, `area_sqm`, `rooms`. `type` is asked here, not on the
-  building — a mixed-use property (e.g. a building with `APARTMENT` units and a ground-floor `RETAIL`
-  unit) is valid, and asking at property-creation time would be premature (the building itself has no
-  inherent type, only what's built or subdivided inside it does).
+  `type [APARTMENT|HOUSE|RETAIL|WAREHOUSE|OFFICE]`, `area_sqm`, `rooms`, `active bool` (default `true`) —
+  deactivating hides this unit from new-tenancy eligibility (Section 4.4) without deleting it; moved here
+  from `properties` (an earlier version had `active` on the building) once it became clear a building-wide
+  toggle didn't hold up against mixed-status buildings. `type` is asked here too, not on the building — a
+  mixed-use property (e.g. a building with `APARTMENT` units and a ground-floor `RETAIL` unit) is valid, and
+  asking at property-creation time would be premature (the building itself has no inherent type, only
+  what's built or subdivided inside it does).
 - **unit_utilities** — utility configuration per unit (the toggles set when adding the property).
   `id`, `unit_id`, `utility_type [COLD_WATER|HOT_WATER|GAS|ELECTRICITY|INTERNET|TRASH|MAINTENANCE|OTHER]`,
   `enabled bool`, `tariff_basis [METER_INDEX|FIXED_COST|QUOTA_SHARE|PER_PERSON]`,
@@ -273,19 +276,20 @@ rejected as a duplicate per §4.2's rule above), confirmed `legal_name`, an expl
 right away, since a CUI-bearing entity has no purpose without its CUI. Persoană Fizică only asks for a name
 — the CNP stays deferred to the entity's first `tenancy` (§4.4).
 
-**Property lifecycle**: a property can be **deactivated** (`active = false` — hides it and its units
-from new-tenancy eligibility, §4.4, without losing the record) or **deleted** outright (removes it and
-its units, with confirmation). A unit can also be deleted individually (confirmation, warns if it's
-currently rented), and so can a legal entity (confirmation, warns how many units currently reference it
-— deleting doesn't cascade-delete those units, they're left pointing at a removed entity, same as any
-other client-side mock with no backend integrity constraint). Properties, units, and legal entities are
-all editable after creation (address fields; label/type/legal entity; name/CUI/VAT/invoice series
-respectively) — **saving an edit (not a fresh add) always asks for confirmation first**, for the
-inevitable typo caught after the fact.
+**Property lifecycle**: a property can only be **deleted** outright (removes it and its units, with
+confirmation) — no property-level deactivate. A unit can be **deactivated** (`active = false` — hides it
+from new-tenancy eligibility, §4.4, without losing the record) or **deleted** individually (confirmation,
+warns if it's currently rented); a legal entity can also be deleted (confirmation, warns how many units
+currently reference it — deleting doesn't cascade-delete those units, they're left pointing at a removed
+entity, same as any other client-side mock with no backend integrity constraint). Properties, units, and
+legal entities are all editable after creation (address fields; label/type/legal entity; name/CUI/VAT/
+invoice series respectively) — **saving an edit (not a fresh add) always asks for confirmation first**,
+for the inevitable typo caught after the fact.
 
 *Implementation status*: `OwnerPortfolioScreen` (mobile, Portofoliu tab) does a minimal slice of this —
-**properties only now**: add/edit properties (structured address only, with delete/deactivate) and, under
-each, add/edit/delete units (label + type + legal entity, highlighted in its list while being edited).
+**properties only now**: add/edit/delete properties (structured address only, no deactivate at this
+level) and, under each, add/edit/delete/deactivate units (label + type + legal entity + active state,
+highlighted in its list while being edited).
 Legal entities themselves are **not** managed here at all — see `OwnerSettingsScreen` (§5.1, Setări tab)
 for that; this screen only reads `legalEntities` from `portfolioStore` to populate the unit form's picker.
 **No filtering of the property list** — an earlier attempt at "Tip"/legal-entity filter chips (and, later,

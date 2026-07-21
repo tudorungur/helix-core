@@ -189,28 +189,36 @@ export function OwnerSettingsScreen() {
   );
 
   return (
-    <FormScreen contentContainerStyle={[styles.container, styles.containerCompactTop]} showBrand={false} longForm>
-      <Text style={styles.sectionLabel}>Entități legale</Text>
-
-      {formOpen && editingId === null ? (
-        <View style={localStyles.card}>
-          {renderFormFields()}
-          <View style={localStyles.row}>
-            <TouchableOpacity onPress={submitForm} disabled={!formValid}>
-              <Text style={!formValid ? localStyles.actionMuted : localStyles.action}>Adaugă entitate legală</Text>
+    <FormScreen
+      contentContainerStyle={[styles.container, styles.containerHeaderTop]}
+      showBrand={false}
+      longForm
+      header={
+        <>
+          <Text style={styles.sectionLabel}>Entități legale</Text>
+          {formOpen && editingId === null ? (
+            <View style={localStyles.card}>
+              {renderFormFields()}
+              <View style={localStyles.row}>
+                <TouchableOpacity onPress={submitForm} disabled={!formValid}>
+                  <Text style={!formValid ? localStyles.actionMuted : localStyles.action}>
+                    Adaugă entitate legală
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={resetForm}>
+                  <Text style={localStyles.actionMuted}>Anulează</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : (
+            <TouchableOpacity style={styles.sectionTrigger} onPress={openAdd}>
+              <Text style={styles.sectionTriggerText}>+ Adaugă entitate legală</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={resetForm}>
-              <Text style={localStyles.actionMuted}>Anulează</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      ) : (
-        <TouchableOpacity style={styles.sectionTrigger} onPress={openAdd}>
-          <Text style={styles.sectionTriggerText}>+ Adaugă entitate legală</Text>
-        </TouchableOpacity>
-      )}
-
-      <View style={localStyles.sectionDivider} />
+          )}
+          <View style={localStyles.sectionDivider} />
+        </>
+      }
+    >
       <Text style={styles.sectionLabel}>Entități legale existente</Text>
 
       {legalEntities.length === 0 ? (
@@ -224,21 +232,23 @@ export function OwnerSettingsScreen() {
                 <TouchableOpacity onPress={submitForm} disabled={!formValid}>
                   <Text style={!formValid ? localStyles.actionMuted : localStyles.action}>Salvează</Text>
                 </TouchableOpacity>
-                <TouchableOpacity onPress={resetForm}>
-                  <Text style={localStyles.actionMuted}>Anulează</Text>
-                </TouchableOpacity>
                 <TouchableOpacity onPress={() => handleDelete(entity.id, entity.name)}>
                   <Text style={localStyles.actionDestructive}>Șterge</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={resetForm}>
+                  <Text style={localStyles.actionMuted}>Anulează</Text>
                 </TouchableOpacity>
               </View>
             </View>
           ) : (
             <View key={entity.id} style={localStyles.card}>
               <Text style={localStyles.optionText}>{entity.name}</Text>
-              <Text style={localStyles.entityCaption}>
+              <Text style={localStyles.entityTypeCaption}>
                 {LEGAL_FORMS.find((f) => f.value === entity.legalForm)?.label}
-                {entity.cuiCnp ? ` — CUI ${entity.cuiCnp}` : ""}
               </Text>
+              {entity.cuiCnp ? (
+                <Text style={localStyles.entityCuiCaption}>CUI {entity.cuiCnp}</Text>
+              ) : null}
               <View style={localStyles.row}>
                 <TouchableOpacity onPress={() => openEdit(entity.id)}>
                   <Text style={localStyles.action}>Editează</Text>
@@ -280,5 +290,8 @@ const localStyles = StyleSheet.create({
   optionSelected: { backgroundColor: "#eaf1fd" },
   optionText: { flex: 1, fontWeight: "600" },
   optionCheck: { color: "#1a73e8", fontWeight: "700", fontSize: 16 },
-  entityCaption: { fontSize: 12, color: "#8e8e93", marginTop: 2 },
+  // Pulled closer than the parent card's own `gap: 8` would give by default — same tight spacing as
+  // Proprietăți/Închirieri's județ/oraș line under stradă/număr.
+  entityTypeCaption: { fontSize: 12, color: "#8e8e93", marginTop: -4 },
+  entityCuiCaption: { fontSize: 12, color: "#8e8e93", marginTop: -4 },
 });

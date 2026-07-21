@@ -38,6 +38,7 @@ function unitDisplayLabel(unit: Unit | undefined): string {
 // `addTenancy`/`updateTenancy` are entirely client-side (TODO(backend) below), and nothing survives a
 // fresh app launch.
 export function OwnerTenanciesScreen() {
+  const legalEntities = usePortfolioStore((state) => state.legalEntities);
   const units = usePortfolioStore((state) => state.units);
   const properties = usePortfolioStore((state) => state.properties);
   const tenancies = usePortfolioStore((state) => state.tenancies);
@@ -45,13 +46,9 @@ export function OwnerTenanciesScreen() {
   const updateTenancy = usePortfolioStore((state) => state.updateTenancy);
   const deleteTenancy = usePortfolioStore((state) => state.deleteTenancy);
 
-  // Only units on an active property are eligible — a deactivated property (Section 4.3) drops out
-  // of new-tenancy eligibility without needing its units individually excluded.
-  const availableUnits = units.filter((unit) => {
-    if (unit.hasActiveTenancy) return false;
-    const property = properties.find((p) => p.id === unit.propertyId);
-    return property?.active ?? false;
-  });
+  // Only active, not-yet-rented units are eligible (Section 4.3 — `active` lives on the unit, not
+  // the property).
+  const availableUnits = units.filter((unit) => unit.active && !unit.hasActiveTenancy);
   const propertiesWithAvailableUnits = properties.filter((property) =>
     availableUnits.some((unit) => unit.propertyId === property.id),
   );
@@ -182,7 +179,10 @@ export function OwnerTenanciesScreen() {
       onPress={() => openEditTenancy(tenancy)}
     >
       <View style={localStyles.titleRow}>
-        <Text style={localStyles.optionText}>{unitDisplayLabel(unit)}</Text>
+        <View style={localStyles.unitInfo}>
+          <Text style={localStyles.optionText}>{unit ? unit.label : "Unitate ștearsă"}</Text>
+          {unit ? <Text style={localStyles.unitTypeCaption}>{unitTypeLabel(unit.type)}</Text> : null}
+        </View>
         <Text style={tenancy.associated ? localStyles.unitStatusAssociated : localStyles.unitStatusPending}>
           {tenancy.associated ? "Asociat" : "Neasociat"}
         </Text>
@@ -235,105 +235,117 @@ export function OwnerTenanciesScreen() {
         <TouchableOpacity onPress={submitEditTenancy} disabled={!editValid}>
           <Text style={!editValid ? localStyles.actionMuted : localStyles.action}>Salvează</Text>
         </TouchableOpacity>
-        <TouchableOpacity onPress={resetTenancyEdit}>
-          <Text style={localStyles.actionMuted}>Anulează</Text>
-        </TouchableOpacity>
         <TouchableOpacity onPress={() => handleDeleteTenancy(tenancy, unit)}>
           <Text style={localStyles.actionDestructive}>Șterge</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={resetTenancyEdit}>
+          <Text style={localStyles.actionMuted}>Anulează</Text>
         </TouchableOpacity>
       </View>
     </View>
   );
 
   return (
-    <FormScreen contentContainerStyle={[styles.container, styles.containerCompactTop]} showBrand={false} longForm>
-      {availableUnits.length === 0 ? (
+    <FormScreen
+      contentContainerStyle={[styles.container, styles.containerHeaderTop]}
+      showBrand={false}
+      longForm
+      header={
         <>
-          <View style={[styles.sectionTrigger, styles.sectionTriggerDisabled]}>
-            <Text style={[styles.sectionTriggerText, styles.sectionTriggerTextDisabled]}>+ Adaugă chirie</Text>
-          </View>
-          <Text style={styles.hint}>
-            {units.length === 0
-              ? "Nu ai adăugat încă nicio unitate în portofoliu."
-              : "Toate unitățile din portofoliu sunt deja închiriate."}
-          </Text>
-        </>
-      ) : formOpen ? (
-        <>
-          <Text style={styles.sectionLabel}>Selectează o unitate</Text>
-          {propertiesWithAvailableUnits.map((property) => (
-            <View key={property.id} style={localStyles.propertyGroup}>
-              <Text style={localStyles.propertyAddress}>{formatPropertyStreetLine(property)}</Text>
-              <Text style={localStyles.propertyLocality}>{formatPropertyLocalityLine(property)}</Text>
-              <View style={localStyles.unitList}>
-                {availableUnits
-                  .filter((unit) => unit.propertyId === property.id)
-                  .map((unit, index) => (
-                    <TouchableOpacity
-                      key={unit.id}
-                      style={[
-                        localStyles.unitListRow,
-                        index > 0 && localStyles.unitListRowDivider,
-                        selectedUnitId === unit.id && localStyles.unitListRowSelected,
-                      ]}
-                      onPress={() => setSelectedUnitId(unit.id)}
-                    >
-                      <Text style={localStyles.unitOptionText}>{unitDisplayLabel(unit)}</Text>
-                    </TouchableOpacity>
-                  ))}
+          {availableUnits.length === 0 ? (
+            <>
+              <View style={[styles.sectionTrigger, styles.sectionTriggerDisabled]}>
+                <Text style={[styles.sectionTriggerText, styles.sectionTriggerTextDisabled]}>+ Adaugă chirie</Text>
               </View>
+              <Text style={[styles.hint, localStyles.headerHint]}>
+                {units.length === 0
+                  ? "Nu ai adăugat încă nicio unitate în portofoliu."
+                  : "Toate unitățile din portofoliu sunt deja închiriate."}
+              </Text>
+            </>
+          ) : !formOpen ? (
+            <TouchableOpacity style={styles.sectionTrigger} onPress={() => setFormOpen(true)}>
+              <Text style={styles.sectionTriggerText}>+ Adaugă chirie</Text>
+            </TouchableOpacity>
+          ) : (
+            <>
+              <Text style={styles.sectionLabel}>Selectează o unitate</Text>
+              {propertiesWithAvailableUnits.map((property) => (
+                <View key={property.id} style={localStyles.propertyGroup}>
+                  <Text style={localStyles.propertyAddress}>{formatPropertyStreetLine(property)}</Text>
+                  <Text style={localStyles.propertyLocality}>{formatPropertyLocalityLine(property)}</Text>
+                  <View style={localStyles.unitList}>
+                    {availableUnits
+                      .filter((unit) => unit.propertyId === property.id)
+                      .map((unit, index) => {
+                        const unitLegalEntity = legalEntities.find((entity) => entity.id === unit.legalEntityId);
+                        return (
+                          <TouchableOpacity
+                            key={unit.id}
+                            style={[
+                              localStyles.unitListRow,
+                              index > 0 && localStyles.unitListRowDivider,
+                              selectedUnitId === unit.id && localStyles.unitListRowSelected,
+                            ]}
+                            onPress={() => setSelectedUnitId(unit.id)}
+                          >
+                            <Text style={localStyles.unitOptionText}>{unit.label}</Text>
+                            <Text style={localStyles.unitTypeCaption}>{unitTypeLabel(unit.type)}</Text>
+                            <Text style={localStyles.unitEntityCaption}>{unitLegalEntity?.name ?? "—"}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                  </View>
 
-              {/* Same pattern as Portofoliu's unit-edit form (Section 4.3) — one form at the bottom
-                  of the whole list, not nested inside whichever row is selected; only that row's own
-                  highlight (above) shows which unit it applies to. */}
-              {availableUnits.some((unit) => unit.propertyId === property.id && unit.id === selectedUnitId) ? (
-                <View style={localStyles.contractForm}>
-                  <Text style={styles.sectionLabel}>Data începere contract chirie</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Dată început (ZZ-LL-AAAA)"
-                    keyboardType="numbers-and-punctuation"
-                    value={startDate}
-                    onChangeText={setStartDate}
-                  />
-                  {startDate.length > 0 && !startDateValid ? (
-                    <Text style={styles.error}>Format așteptat: ZZ-LL-AAAA</Text>
+                  {/* Same pattern as Portofoliu's unit-edit form (Section 4.3) — one form at the bottom
+                      of the whole list, not nested inside whichever row is selected; only that row's own
+                      highlight (above) shows which unit it applies to. */}
+                  {availableUnits.some((unit) => unit.propertyId === property.id && unit.id === selectedUnitId) ? (
+                    <View style={localStyles.contractForm}>
+                      <Text style={styles.sectionLabel}>Data începere contract chirie</Text>
+                      <TextInput
+                        style={styles.input}
+                        placeholder="Dată început (ZZ-LL-AAAA)"
+                        keyboardType="numbers-and-punctuation"
+                        value={startDate}
+                        onChangeText={setStartDate}
+                      />
+                      {startDate.length > 0 && !startDateValid ? (
+                        <Text style={styles.error}>Format așteptat: ZZ-LL-AAAA</Text>
+                      ) : null}
+
+                      <Text style={styles.sectionLabel}>Cost chirie lunară</Text>
+                      <View style={localStyles.rentRow}>
+                        <TextInput
+                          style={[styles.input, localStyles.rentInput]}
+                          placeholder="Chirie"
+                          keyboardType="decimal-pad"
+                          value={rentAmount}
+                          onChangeText={setRentAmount}
+                        />
+                        <Toggle options={CURRENCIES} value={currency} onChange={setCurrency} />
+                      </View>
+
+                      <View style={localStyles.row}>
+                        <TouchableOpacity onPress={handleCreateTenancy} disabled={submitting || !formValid}>
+                          <Text style={submitting || !formValid ? localStyles.actionMuted : localStyles.action}>
+                            Creează chirie
+                          </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={resetForm}>
+                          <Text style={localStyles.actionMuted}>Anulează</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
                   ) : null}
-
-                  <Text style={styles.sectionLabel}>Cost chirie lunară</Text>
-                  <View style={localStyles.rentRow}>
-                    <TextInput
-                      style={[styles.input, localStyles.rentInput]}
-                      placeholder="Chirie"
-                      keyboardType="decimal-pad"
-                      value={rentAmount}
-                      onChangeText={setRentAmount}
-                    />
-                    <Toggle options={CURRENCIES} value={currency} onChange={setCurrency} />
-                  </View>
-
-                  <View style={localStyles.row}>
-                    <TouchableOpacity onPress={handleCreateTenancy} disabled={submitting || !formValid}>
-                      <Text style={submitting || !formValid ? localStyles.actionMuted : localStyles.action}>
-                        Creează chirie
-                      </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={resetForm}>
-                      <Text style={localStyles.actionMuted}>Anulează</Text>
-                    </TouchableOpacity>
-                  </View>
                 </View>
-              ) : null}
-            </View>
-          ))}
+              ))}
+            </>
+          )}
+          <View style={localStyles.sectionDivider} />
         </>
-      ) : (
-        <TouchableOpacity style={styles.sectionTrigger} onPress={() => setFormOpen(true)}>
-          <Text style={styles.sectionTriggerText}>+ Adaugă chirie</Text>
-        </TouchableOpacity>
-      )}
-
-      <View style={localStyles.sectionDivider} />
+      }
+    >
       <Text style={styles.sectionLabel}>Chirii existente</Text>
 
       {tenancies.length === 0 ? (
@@ -372,6 +384,10 @@ export function OwnerTenanciesScreen() {
 }
 
 const localStyles = StyleSheet.create({
+  // Cancels formStyles.hint's own marginBottom: 4 — the header View already spaces its children
+  // with `gap: 8` (FormScreen.tsx), so without this override the hint-to-divider gap read as 4px
+  // wider than the trigger-to-divider gap on the other screens (button has no such extra margin).
+  headerHint: { marginBottom: 0 },
   // Marks the boundary between "add a tenancy" (unit picker + contract form) and "already-created
   // tenancies" below it — the two blocks otherwise share the same property-tile look and read as
   // one continuous list.
@@ -389,7 +405,9 @@ const localStyles = StyleSheet.create({
     backgroundColor: "#fff",
   },
   propertyAddress: { fontSize: 16, fontWeight: "600" },
-  propertyLocality: { fontSize: 13, color: "#8e8e93", marginTop: 2 },
+  // Pulled closer than the group's own `gap: 8` would give by default, so it reads as a sub-line of
+  // the address above rather than a separate item.
+  propertyLocality: { fontSize: 13, color: "#8e8e93", marginTop: -4 },
   // Multiple units/tenancies on the *same* property share one bordered box with hairline dividers
   // between rows — same pattern as Portofoliu's unit list under a property — instead of each getting
   // its own separate bordered tile (that read as too many nested boxes).
@@ -423,8 +441,16 @@ const localStyles = StyleSheet.create({
   // Slightly bolder than plain text so Anulează reads a bit more prominently, still neutral grey.
   actionMuted: { color: "#8e8e93", fontWeight: "600" },
   actionDestructive: { color: "#d32f2f", fontWeight: "600" },
-  unitOptionText: { flex: 1 },
+  // Explicit size/weight, not flex:1 — same as Portofoliu's unitLabel. flex:1 on the first child of
+  // a column with no fixed height risked Yoga collapsing it to zero height in some cases.
+  unitOptionText: { fontSize: 15, fontWeight: "600" },
   optionText: { fontSize: 16, fontWeight: "600" },
+  // Wraps label + type so they stack as one block that the status badge (Asociat/Neasociat) can
+  // center against, same as Portofoliu's unit rows.
+  unitInfo: { flex: 1 },
+  unitTypeCaption: { fontSize: 12, color: "#8e8e93", marginTop: 2 },
+  // Third line, same as Portofoliu's unit rows — label / sub-type / legal entity.
+  unitEntityCaption: { fontSize: 12, color: "#8e8e93", marginTop: 2 },
   titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   // Same visual language as Portofoliu's Închiriată/Liberă badge, but a different fact: whether the
   // tenant has entered the association_code in their own dashboard, not whether the unit has a

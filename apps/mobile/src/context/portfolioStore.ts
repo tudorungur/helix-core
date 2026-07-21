@@ -39,9 +39,6 @@ export type PropertyAddress = {
 // units of different types and different legal entities (Section 3.1).
 export type Property = PropertyAddress & {
   id: string;
-  // Deactivating hides this property (and its units) from new-tenancy eligibility without deleting
-  // it — distinct from an actual delete (Section 4.3).
-  active: boolean;
 };
 
 // The actual rentable/invoiceable thing — carries its own type and legal entity, not the building.
@@ -52,6 +49,10 @@ export type Unit = {
   label: string;
   type: UnitType;
   hasActiveTenancy: boolean;
+  // Deactivating hides this unit from new-tenancy eligibility without deleting it — distinct from
+  // an actual delete (Section 4.3). Lives on the unit, not the property: a building can have some
+  // units still rentable and others taken off the market, so "active" only makes sense per-unit.
+  active: boolean;
 };
 
 export type RentCurrency = "EUR" | "RON";
@@ -134,10 +135,10 @@ type PortfolioState = {
   addProperty: (address: PropertyAddress) => Property;
   updateProperty: (id: string, address: PropertyAddress) => void;
   deleteProperty: (id: string) => void;
-  setPropertyActive: (id: string, active: boolean) => void;
   addUnit: (propertyId: string, legalEntityId: string, label: string, type: UnitType) => Unit;
   updateUnit: (id: string, legalEntityId: string, label: string, type: UnitType) => void;
   deleteUnit: (id: string) => void;
+  setUnitActive: (id: string, active: boolean) => void;
   tenancies: Tenancy[];
   addTenancy: (unitId: string, startDate: string, rentAmount: number, rentCurrency: RentCurrency) => Tenancy;
   updateTenancy: (id: string, startDate: string, rentAmount: number, rentCurrency: RentCurrency) => void;
@@ -151,12 +152,12 @@ const generateId = () => String(nextId++);
 // Section 4.3 — the owner's fiscal identities (legal_entities) and physical inventory (properties →
 // units), independent of who's renting what. In-memory only, mocked pending a backend (same pattern
 // as contextStore.ts) — nothing here survives a fresh app launch. Section 4.4's Tenancies flow reads
-// `units` and picks one with `hasActiveTenancy: false` on an **active** property rather than
-// creating a unit inline; `addTenancy` both persists the `Tenancy` (so its association_code stays
-// accessible, not just shown once) and flips that unit out of the "available" pool in the same
-// update. A single account can hold multiple `legalEntities` — each `unit` (not property) picks
-// exactly one, which decides that unit's e-Factura eligibility (Section 1's note on the label being
-// per-unit, not per-property or per-account).
+// `units` and picks one that's `active` with `hasActiveTenancy: false` rather than creating a unit
+// inline; `addTenancy` both persists the `Tenancy` (so its association_code stays accessible, not
+// just shown once) and flips that unit out of the "available" pool in the same update. A single
+// account can hold multiple `legalEntities` — each `unit` (not property) picks exactly one, which
+// decides that unit's e-Factura eligibility (Section 1's note on the label being per-unit, not
+// per-property or per-account).
 export const usePortfolioStore = create<PortfolioState>((set, get) => ({
   legalEntities: [],
   properties: [],
@@ -189,7 +190,7 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
     }));
   },
   addProperty: (address) => {
-    const property: Property = { id: generateId(), active: true, ...address };
+    const property: Property = { id: generateId(), ...address };
     set((state) => ({ properties: [...state.properties, property] }));
     return property;
   },
@@ -206,15 +207,16 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
       units: state.units.filter((unit) => unit.propertyId !== id),
     }));
   },
-  setPropertyActive: (id, active) => {
-    set((state) => ({
-      properties: state.properties.map((property) =>
-        property.id === id ? { ...property, active } : property,
-      ),
-    }));
-  },
   addUnit: (propertyId, legalEntityId, label, type) => {
-    const unit: Unit = { id: generateId(), propertyId, legalEntityId, label, type, hasActiveTenancy: false };
+    const unit: Unit = {
+      id: generateId(),
+      propertyId,
+      legalEntityId,
+      label,
+      type,
+      hasActiveTenancy: false,
+      active: true,
+    };
     set((state) => ({ units: [...state.units, unit] }));
     return unit;
   },
@@ -227,6 +229,11 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
   },
   deleteUnit: (id) => {
     set((state) => ({ units: state.units.filter((unit) => unit.id !== id) }));
+  },
+  setUnitActive: (id, active) => {
+    set((state) => ({
+      units: state.units.map((unit) => (unit.id === id ? { ...unit, active } : unit)),
+    }));
   },
   tenancies: [],
   addTenancy: (unitId, startDate, rentAmount, rentCurrency) => {

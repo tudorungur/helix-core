@@ -154,9 +154,6 @@ export const properties = pgTable("properties", {
   postalCode: varchar("postal_code", { length: 10 }).notNull(),
   city: varchar("city", { length: 100 }).notNull(),
   county: varchar("county", { length: 100 }).notNull(),
-  // Deactivating hides a property (and its units) from new-tenancy eligibility without deleting
-  // it — distinct from an actual delete (Section 4.3).
-  active: boolean("active").notNull().default(true),
 });
 
 // The actual rentable/invoiceable thing — carries both its type (asked here, not on the building)
@@ -172,6 +169,12 @@ export const units = pgTable("units", {
   type: unitType("type").notNull(),
   areaSqm: numeric("area_sqm"),
   rooms: integer("rooms"),
+  // Deactivating hides this unit from new-tenancy eligibility without deleting it — distinct from
+  // an actual delete (Section 4.3). Lives here, not on `properties`: a building can have some units
+  // still rentable and others taken off the market, so "active" only makes sense per-unit (moved
+  // down from property-level after trying it there first — a building-wide toggle didn't hold up
+  // once landlords could have some units still rentable and others not).
+  active: boolean("active").notNull().default(true),
 });
 
 export const unitUtilities = pgTable("unit_utilities", {

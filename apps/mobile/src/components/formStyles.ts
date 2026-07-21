@@ -10,6 +10,9 @@ export const formStyles = StyleSheet.create({
   // sized for auth screens with no header above them; right under the fixed header it read as too
   // much empty space before the first section title.
   containerCompactTop: { paddingTop: 12 },
+  // Same as containerCompactTop but for screens that also pass FormScreen a `header` — the header
+  // already carries its own top padding, so the scrollable content underneath doesn't need more.
+  containerHeaderTop: { paddingTop: 4 },
   input: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 12 },
   button: { backgroundColor: "#1a73e8", borderRadius: 8, padding: 14, alignItems: "center", marginTop: 8 },
   buttonDisabled: { opacity: 0.5 },
