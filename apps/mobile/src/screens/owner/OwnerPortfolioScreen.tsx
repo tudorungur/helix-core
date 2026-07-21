@@ -1,17 +1,27 @@
 import { useState } from "react";
-import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { Alert, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from "react-native";
 
 import { FormScreen } from "../../components/FormScreen";
 import { formStyles as styles } from "../../components/formStyles";
 import { Toggle } from "../../components/Toggle";
 import {
+  defaultUnitUtilities,
   formatPropertyAddress,
   formatPropertyLocalityLine,
   formatPropertyStreetLine,
   unitTypeLabel,
   usePortfolioStore,
+  utilityTypeLabel,
+  utilityUnitLabel,
 } from "../../context/portfolioStore";
-import type { PropertyAddress, UnitType } from "../../context/portfolioStore";
+import type { PropertyAddress, UnitType, UnitUtility, UtilityType } from "../../context/portfolioStore";
+
+// Digits and at most one decimal comma (Romanian convention — "0,00", matching the placeholder), up
+// to 2 decimal places — same cap for every utility, metered (water/gas/electricity, priced per
+// m³/kWh) or flat monthly sum alike. Validated as the user types rather than after the fact, so an
+// invalid keystroke (a letter, a second ",", a third decimal digit) is just silently refused instead
+// of committed-then-flagged.
+const UTILITY_PRICE_PATTERN = /^\d*(,\d{0,2})?$/;
 
 type UnitCategory = "RESIDENTIAL" | "COMMERCIAL";
 
@@ -143,6 +153,13 @@ export function OwnerPortfolioScreen() {
   const [newUnitType, setNewUnitType] = useState<UnitType | null>(null);
   const [newUnitLegalEntityId, setNewUnitLegalEntityId] = useState<string | null>(null);
   const [newUnitLabel, setNewUnitLabel] = useState("");
+  const [newUnitUtilities, setNewUnitUtilities] = useState<UnitUtility[]>(defaultUnitUtilities());
+  // Separate from `newUnitUtilities`' own numeric `price` — binding the TextInput straight to
+  // `String(price)` re-derives the displayed text from the number on every keystroke, which drops a
+  // trailing "." the moment it's typed (Number("0.") === 0, so "0." immediately renders back as
+  // "0"), making a value like "0.850" impossible to type from scratch. This holds the exact text the
+  // user typed; `newUnitUtilities`' price is kept in sync alongside it for submitting.
+  const [utilityPriceText, setUtilityPriceText] = useState<Partial<Record<UtilityType, string>>>({});
 
   const unitValid = newUnitType !== null && newUnitLegalEntityId !== null && newUnitLabel.trim().length > 0;
 
@@ -153,6 +170,8 @@ export function OwnerPortfolioScreen() {
     setNewUnitType(null);
     setNewUnitLegalEntityId(null);
     setNewUnitLabel("");
+    setNewUnitUtilities(defaultUnitUtilities());
+    setUtilityPriceText({});
   };
 
   const openAddUnit = (propertyId: string) => {
@@ -170,6 +189,25 @@ export function OwnerPortfolioScreen() {
     setNewUnitType(unit.type);
     setNewUnitLegalEntityId(unit.legalEntityId);
     setNewUnitLabel(unit.label);
+    setNewUnitUtilities(unit.utilities);
+    setUtilityPriceText(
+      Object.fromEntries(
+        unit.utilities.map((utility) => [
+          utility.type,
+          utility.price ? String(utility.price).replace(".", ",") : "",
+        ]),
+      ),
+    );
+  };
+
+  const updateNewUnitUtility = (type: UnitUtility["type"], patch: Partial<UnitUtility>) => {
+    setNewUnitUtilities((current) => current.map((u) => (u.type === type ? { ...u, ...patch } : u)));
+  };
+
+  const handleUtilityPriceChange = (type: UtilityType, text: string) => {
+    if (!UTILITY_PRICE_PATTERN.test(text)) return;
+    setUtilityPriceText((current) => ({ ...current, [type]: text }));
+    updateNewUnitUtility(type, { price: Number(text.replace(",", ".")) || 0 });
   };
 
   const handleSubmitUnit = () => {
@@ -180,14 +218,14 @@ export function OwnerPortfolioScreen() {
         {
           text: "Confirmă",
           onPress: () => {
-            updateUnit(editingUnitId, newUnitLegalEntityId, newUnitLabel.trim(), newUnitType);
+            updateUnit(editingUnitId, newUnitLegalEntityId, newUnitLabel.trim(), newUnitType, newUnitUtilities);
             resetUnitForm();
           },
         },
       ]);
       return;
     }
-    addUnit(unitFormPropertyId, newUnitLegalEntityId, newUnitLabel.trim(), newUnitType);
+    addUnit(unitFormPropertyId, newUnitLegalEntityId, newUnitLabel.trim(), newUnitType, newUnitUtilities);
     resetUnitForm();
   };
 
@@ -451,6 +489,38 @@ export function OwnerPortfolioScreen() {
                   ))}
                 </View>
 
+                <Text style={styles.sectionLabel}>Utilități</Text>
+                <View style={localStyles.optionList}>
+                  {newUnitUtilities.map((utility, index) => (
+                    <View
+                      key={utility.type}
+                      style={[localStyles.utilityRow, index > 0 && localStyles.optionDivider]}
+                    >
+                      <View style={localStyles.utilityRowHeader}>
+                        <Text style={localStyles.optionText}>{utilityTypeLabel(utility.type)}</Text>
+                        <View style={localStyles.utilityControls}>
+                          {utility.enabled ? (
+                            <>
+                              <TextInput
+                                style={[styles.input, localStyles.utilityPriceInput]}
+                                placeholder="0,00"
+                                keyboardType="decimal-pad"
+                                value={utilityPriceText[utility.type] ?? ""}
+                                onChangeText={(value) => handleUtilityPriceChange(utility.type, value)}
+                              />
+                              <Text style={localStyles.utilityPriceUnit}>{utilityUnitLabel(utility.type)}</Text>
+                            </>
+                          ) : null}
+                          <Switch
+                            value={utility.enabled}
+                            onValueChange={(enabled) => updateNewUnitUtility(utility.type, { enabled })}
+                          />
+                        </View>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+
                 <View style={localStyles.row}>
                   <TouchableOpacity onPress={handleSubmitUnit} disabled={!unitValid}>
                     <Text style={!unitValid ? localStyles.actionMuted : localStyles.action}>
@@ -572,4 +642,20 @@ const localStyles = StyleSheet.create({
   optionSelected: { backgroundColor: "#eaf1fd" },
   optionText: { flex: 1 },
   optionCheck: { color: "#1a73e8", fontWeight: "700", fontSize: 16 },
+  utilityRow: { padding: 12 },
+  utilityRowHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  // Price field, unit of measure, and the toggle all sit together on the right, in that order —
+  // the unit of measure lives next to the field itself (not inside its placeholder, which
+  // disappears the moment you start typing) and the toggle continues right after it.
+  utilityControls: { flexDirection: "row", alignItems: "center", gap: 8 },
+  // Wide enough for ~5 digits ("999,99") — was flex:1 (full row width), unnecessarily wide for a
+  // short number.
+  utilityPriceInput: {
+    width: 70,
+    marginTop: 0,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    textAlign: "right",
+  },
+  utilityPriceUnit: { color: "#8e8e93", fontWeight: "600" },
 });

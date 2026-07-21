@@ -3,6 +3,15 @@ import { create } from "zustand";
 export type LegalForm = "PF" | "PFA" | "II" | "IF" | "SRL" | "SA";
 export type LegalEntityType = "UNREGISTERED_INDIVIDUAL" | "REGISTERED_INDIVIDUAL" | "REGISTERED_COMPANY";
 export type UnitType = "APARTMENT" | "HOUSE" | "RETAIL" | "WAREHOUSE" | "OFFICE";
+export type UtilityType =
+  | "COLD_WATER"
+  | "HOT_WATER"
+  | "GAS"
+  | "ELECTRICITY"
+  | "INTERNET"
+  | "TRASH"
+  | "MAINTENANCE"
+  | "OTHER";
 
 export type LegalEntity = {
   id: string;
@@ -41,6 +50,18 @@ export type Property = PropertyAddress & {
   id: string;
 };
 
+// One row per utility type on a unit — simplified mock version of the real `unit_utilities` table
+// (SPEC.md §3.1), which also has a `tariffBasis` (index/fixed/quota/per-person) and separate
+// unitPrice/fixedAmount/quotaPercentage fields depending on that basis. Here it's just a flat
+// enabled toggle + a single monthly price (always RON, same as the real schema has no currency on
+// this table) — enough for the mobile mock's toggle+price UI without building the full 4-way tariff
+// picker yet.
+export type UnitUtility = {
+  type: UtilityType;
+  enabled: boolean;
+  price: number;
+};
+
 // The actual rentable/invoiceable thing — carries its own type and legal entity, not the building.
 export type Unit = {
   id: string;
@@ -53,6 +74,9 @@ export type Unit = {
   // an actual delete (Section 4.3). Lives on the unit, not the property: a building can have some
   // units still rentable and others taken off the market, so "active" only makes sense per-unit.
   active: boolean;
+  // Always all 8 UtilityType entries, most `enabled: false` by default — set from the unit form's
+  // toggle list (Section 4.3), shown read-only to the tenant on their own tenancy tile (Section 4.4).
+  utilities: UnitUtility[];
 };
 
 export type RentCurrency = "EUR" | "RON";
@@ -98,6 +122,56 @@ export function unitTypeLabel(type: UnitType): string {
   return UNIT_TYPE_LABELS[type];
 }
 
+const UTILITY_TYPES: UtilityType[] = [
+  "COLD_WATER",
+  "HOT_WATER",
+  "GAS",
+  "ELECTRICITY",
+  "INTERNET",
+  "TRASH",
+  "MAINTENANCE",
+  "OTHER",
+];
+
+const UTILITY_TYPE_LABELS: Record<UtilityType, string> = {
+  COLD_WATER: "Apă rece",
+  HOT_WATER: "Apă caldă",
+  GAS: "Gaz",
+  ELECTRICITY: "Curent",
+  INTERNET: "Internet",
+  TRASH: "Salubritate",
+  MAINTENANCE: "Întreținere",
+  OTHER: "Altele",
+};
+
+export function utilityTypeLabel(type: UtilityType): string {
+  return UTILITY_TYPE_LABELS[type];
+}
+
+// Metered utilities (water/gas/electricity) are priced per unit of consumption, not a flat monthly
+// fee like internet/salubritate/întreținere — shown next to the price field/tile so "50" reads as
+// "50 RON/m³" or "50 RON/kWh", not an ambiguous flat amount.
+const UTILITY_UNIT_LABELS: Record<UtilityType, string> = {
+  COLD_WATER: "RON/m³",
+  HOT_WATER: "RON/m³",
+  GAS: "RON/m³",
+  ELECTRICITY: "RON/kWh",
+  INTERNET: "RON/lună",
+  TRASH: "RON/lună",
+  MAINTENANCE: "RON/lună",
+  OTHER: "RON/lună",
+};
+
+export function utilityUnitLabel(type: UtilityType): string {
+  return UTILITY_UNIT_LABELS[type];
+}
+
+// Starting point for a brand-new unit's utility list (Section 4.3's unit form) — every type present,
+// all off by default, price 0 until toggled on and given a price.
+export function defaultUnitUtilities(): UnitUtility[] {
+  return UTILITY_TYPES.map((type) => ({ type, enabled: false, price: 0 }));
+}
+
 export function legalEntityTypeFor(legalForm: LegalForm): LegalEntityType {
   if (legalForm === "PF") return "UNREGISTERED_INDIVIDUAL";
   // PFA, II, IF — the three sibling forms under OUG 44/2008, none with legal personality, all
@@ -135,8 +209,20 @@ type PortfolioState = {
   addProperty: (address: PropertyAddress) => Property;
   updateProperty: (id: string, address: PropertyAddress) => void;
   deleteProperty: (id: string) => void;
-  addUnit: (propertyId: string, legalEntityId: string, label: string, type: UnitType) => Unit;
-  updateUnit: (id: string, legalEntityId: string, label: string, type: UnitType) => void;
+  addUnit: (
+    propertyId: string,
+    legalEntityId: string,
+    label: string,
+    type: UnitType,
+    utilities: UnitUtility[],
+  ) => Unit;
+  updateUnit: (
+    id: string,
+    legalEntityId: string,
+    label: string,
+    type: UnitType,
+    utilities: UnitUtility[],
+  ) => void;
   deleteUnit: (id: string) => void;
   setUnitActive: (id: string, active: boolean) => void;
   tenancies: Tenancy[];
@@ -207,7 +293,7 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
       units: state.units.filter((unit) => unit.propertyId !== id),
     }));
   },
-  addUnit: (propertyId, legalEntityId, label, type) => {
+  addUnit: (propertyId, legalEntityId, label, type, utilities) => {
     const unit: Unit = {
       id: generateId(),
       propertyId,
@@ -216,14 +302,15 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
       type,
       hasActiveTenancy: false,
       active: true,
+      utilities,
     };
     set((state) => ({ units: [...state.units, unit] }));
     return unit;
   },
-  updateUnit: (id, legalEntityId, label, type) => {
+  updateUnit: (id, legalEntityId, label, type, utilities) => {
     set((state) => ({
       units: state.units.map((unit) =>
-        unit.id === id ? { ...unit, legalEntityId, label, type } : unit,
+        unit.id === id ? { ...unit, legalEntityId, label, type, utilities } : unit,
       ),
     }));
   },

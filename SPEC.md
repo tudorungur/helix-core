@@ -296,9 +296,14 @@ for that; this screen only reads `legalEntities` from `portfolioStore` to popula
 a persistent cross-tab legal-entity header with its own select/collapse filter) was removed each time:
 filtering by legal entity hid a just-added property outright (it has no units yet, so it matched nothing),
 which read as a bug, not a feature; the persistent header also added complexity nobody wanted and squeezed
-the tab content below it. No utility toggles yet, no `area_sqm`/`rooms` yet. It's a
+the tab content below it. **Utility toggles are built**, in a collapsible "Utilități ▾" section of the
+unit form (opens automatically when editing a unit that already has any enabled) — a simplified version
+of the real `unit_utilities` model: just an on/off `Switch` + a flat monthly price per utility type, no
+`tariffBasis` picker (index/fixed/quota/per-person) yet. Shown read-only to the tenant too, one line per
+enabled utility, on their own tenancy tile in `TenantTenanciesScreen` (§4.4, "Chiriile mele"). No
+`area_sqm`/`rooms` yet. It's a
 separate screen from tenancy creation (§4.4) — a unit can exist here unrented indefinitely;
-`OwnerTenanciesScreen` picks from units on **active** properties added here rather than creating one
+`OwnerTenanciesScreen` picks from **active** units added here rather than creating one
 inline — eligible units are grouped under their property (address header, then a shared bordered box
 with hairline-divided rows per unit, same nesting Portofoliu itself uses for properties→units — this
 reverted from an earlier "each unit its own tile" version). Two-option pickers (unit type
@@ -361,7 +366,11 @@ tenancy yet, matches §4.1's TODO pattern). If the owner's Portfolio has no unre
 chirie" trigger just renders greyed-out/disabled with explanatory hint text (distinguishing "no units
 in the portfolio at all" from "units exist but all are already rented") — it no longer auto-navigates
 to Portofoliu on tap; property/unit creation lives only in §4.3, reached by the owner switching tabs
-themselves. **The bilateral fiscal-collection step below is not built yet** — next up.
+themselves. On the tenant side, `TenantTenanciesScreen` also lists every tenancy the (single mock)
+tenant has associated so far under a "Chiriile mele" heading — grouped by property, same tile format as
+the owner's own Închirieri list, plus the unit's enabled utilities/prices (§4.3) shown read-only, one
+per line — behind the same pinned "+ Asociază chirie" trigger/divider/scroll pattern as the CRUD
+screens. **The bilateral fiscal-collection step below is not built yet** — next up.
 
 **Fiscal data is collected bilaterally right here, once the code resolves — this is the first point any of
 it is actually needed for the tenant side (owner side may already be done, see below), per §4.1's
