@@ -17,3 +17,7 @@ output "cognito_user_pool_id" {
 output "cognito_user_pool_client_id" {
   value = module.auth.user_pool_client_id
 }
+
+output "api_endpoint" {
+  value = module.api_gateway.api_endpoint
+}

@@ -209,6 +209,13 @@ users (Cognito sub) ──┬── account_memberships ──> accounts ──>
 4. A user can have 0..N `account_memberships` + 0..N `tenancy_memberships` at the same time → the mobile app
    has an **account/context switcher** in the UI.
 
+*Implementation status*: steps 1-3's account/property/unit branch is built in
+`services/properties/src/auth.ts` (`getUserId`, `resolveAccountAccess`, `canReadProperty`/
+`canWriteProperty`/`canWriteUnit`) — `users.id` **is** the Cognito `sub` (Section 3.1), so step 1 is a
+direct claim read, no lookup needed. Step 2 (API Gateway JWT authorizer, Cognito-issued) only proves
+*who* the caller is; membership/scope resolution (steps 2's DB load and 3) happens inside the Lambda
+itself, per request, not in the authorizer. The tenancy_membership branch isn't built yet.
+
 ## 4. Key flows
 
 ### 4.1 Landlord & tenant onboarding
@@ -688,6 +695,18 @@ flowchart TB
 
 AWS services used: Cognito, API Gateway, Lambda, Aurora Serverless v2, RDS Proxy, S3, Bedrock,
 Step Functions, EventBridge Scheduler, SES, Secrets Manager, KMS, CloudWatch, X-Ray, WAF.
+
+*Implementation status*: `services/properties` (legal entities/properties/units, Section 4.3) is the
+first — and so far only — bounded context actually built and deployed to `dev`, end-to-end and
+verified with a real Cognito-authenticated request (create/list/patch/delete on all three resources).
+Two new Terraform modules support it and every service after it: `infra/modules/api_gateway` (one
+shared HTTP API + Cognito JWT authorizer per environment, created once) and
+`infra/modules/service_lambda` (one instantiation per bounded-context Lambda — IAM role, VPC config,
+routes on the shared API, matching this section's "one function per bounded context"). A Lambda's own
+route handling stays internal to that function (`event.routeKey` switch), not spread across many tiny
+Lambdas. The remaining 7 `services/*` packages are still empty scaffolds. See
+[[project_helix_core_spec]] for the debugging trail (SSL, ESM bundling, a silent column-name mismatch)
+if wiring up the next service.
 
 ## 7. Repository structure & tooling
 
