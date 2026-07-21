@@ -31,6 +31,8 @@ const LEGAL_FORMS: { value: LegalForm; label: string }[] = [
 export function OwnerSettingsScreen() {
   const legalEntities = usePortfolioStore((state) => state.legalEntities);
   const units = usePortfolioStore((state) => state.units);
+  const portfolioLoading = usePortfolioStore((state) => state.loading);
+  const portfolioError = usePortfolioStore((state) => state.error);
   const addLegalEntity = usePortfolioStore((state) => state.addLegalEntity);
   const updateLegalEntity = usePortfolioStore((state) => state.updateLegalEntity);
   const deleteLegalEntity = usePortfolioStore((state) => state.deleteLegalEntity);
@@ -42,11 +44,19 @@ export function OwnerSettingsScreen() {
   const [cui, setCui] = useState("");
   const [vatPayer, setVatPayer] = useState<boolean | null>(null);
   const [invoiceSeries, setInvoiceSeries] = useState("");
+  // Set for the span of an add/update request. Guards `cuiDuplicate` below: once `addLegalEntity`
+  // resolves, the store appends the just-created entity to `legalEntities` (its `cuiCnp` is, by
+  // definition, whatever we just typed) — but that's a separate state update from `resetForm()`'s
+  // `setCui("")`, so for one render the new entity is in the list *and* the form still shows the
+  // same CUI, which briefly (and wrongly) flags itself as a duplicate. Suppressing the check while
+  // `submitting` is true covers exactly that window.
+  const [submitting, setSubmitting] = useState(false);
 
   const isBusinessForm = legalForm !== null && legalForm !== "PF";
   const cuiValid = !isBusinessForm || validateCUI(cui);
   const normalizeCui = (value: string) => value.trim().replace(/^RO/i, "").toUpperCase();
   const cuiDuplicate =
+    !submitting &&
     isBusinessForm &&
     cui.trim().length > 0 &&
     legalEntities.some(
@@ -106,23 +116,29 @@ export function OwnerSettingsScreen() {
         {
           text: "Confirmă",
           onPress: async () => {
+            setSubmitting(true);
             try {
               await updateLegalEntity(editingId, input);
               resetForm();
             } catch (error) {
               handleApiError(error);
+            } finally {
+              setSubmitting(false);
             }
           },
         },
       ]);
       return;
     }
+    setSubmitting(true);
     (async () => {
       try {
         await addLegalEntity(input);
         resetForm();
       } catch (error) {
         handleApiError(error);
+      } finally {
+        setSubmitting(false);
       }
     })();
   };
@@ -251,7 +267,11 @@ export function OwnerSettingsScreen() {
     >
       <Text style={styles.sectionLabel}>Entități legale existente</Text>
 
-      {legalEntities.length === 0 ? (
+      {legalEntities.length === 0 && portfolioLoading ? (
+        <Text style={styles.hint}>Se încarcă...</Text>
+      ) : legalEntities.length === 0 && portfolioError ? (
+        <Text style={styles.error}>{portfolioError}</Text>
+      ) : legalEntities.length === 0 ? (
         <Text style={styles.hint}>Nu ai încă nicio entitate legală adăugată.</Text>
       ) : (
         legalEntities.map((entity) =>

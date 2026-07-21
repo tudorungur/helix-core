@@ -80,6 +80,8 @@ export function OwnerPortfolioScreen() {
   const updateUnit = usePortfolioStore((state) => state.updateUnit);
   const deleteUnit = usePortfolioStore((state) => state.deleteUnit);
   const setUnitActive = usePortfolioStore((state) => state.setUnitActive);
+  const portfolioLoading = usePortfolioStore((state) => state.loading);
+  const portfolioError = usePortfolioStore((state) => state.error);
 
   const handleApiError = (error: unknown) => {
     Alert.alert("Eroare", error instanceof Error ? error.message : "A apărut o eroare neașteptată.");
@@ -359,7 +361,11 @@ export function OwnerPortfolioScreen() {
     >
       <Text style={styles.sectionLabel}>Proprietăți existente</Text>
 
-      {properties.length === 0 ? (
+      {properties.length === 0 && portfolioLoading ? (
+        <Text style={styles.hint}>Se încarcă...</Text>
+      ) : properties.length === 0 && portfolioError ? (
+        <Text style={styles.error}>{portfolioError}</Text>
+      ) : properties.length === 0 ? (
         <Text style={styles.hint}>Nu ai încă nicio proprietate.</Text>
       ) : (
         properties.map((property) =>
