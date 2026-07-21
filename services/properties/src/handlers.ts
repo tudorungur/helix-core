@@ -151,12 +151,15 @@ export async function deleteProperty(db: Db, access: AccountAccess | null, accou
 // ---- Units (Section 4.3) — the actual rentable thing: type, legal entity, and active all live
 // here, not on the property (Section 3.1's note on a mixed-status building). ----
 
+// `units.area_sqm`/`rooms` exist on the table (pre-dating this service) but aren't collected by the
+// mobile app yet and nothing here depends on them functionally (utility QUOTA_SHARE tariffs store a
+// manually-entered `quota_percentage`, not one derived from area) — left out of the API input on
+// purpose until there's an actual use for them. Add back with an explicit numeric→string conversion
+// (`units.area_sqm` is Postgres `numeric`, which Drizzle represents as a string) if that changes.
 const unitInput = z.object({
   legalEntityId: z.string().uuid(),
   label: z.string().trim().min(1),
   type: z.enum(["APARTMENT", "HOUSE", "RETAIL", "WAREHOUSE", "OFFICE"]),
-  areaSqm: z.number().positive().optional(),
-  rooms: z.number().int().positive().optional(),
   active: z.boolean().optional(),
 });
 
@@ -168,13 +171,6 @@ async function getPropertyOrThrow(db: Db, accountId: string, propertyId: string)
     .limit(1);
   if (!property) throw new HttpError(404, "Property not found");
   return property;
-}
-
-// `units.area_sqm` is Postgres `numeric` — Drizzle represents that as a string (avoids the
-// float-precision issues a plain `number` column would have), so the zod-parsed number needs one
-// explicit conversion at the DB boundary.
-function toUnitRow<T extends { areaSqm?: number }>({ areaSqm, ...rest }: T) {
-  return { ...rest, areaSqm: areaSqm === undefined ? undefined : String(areaSqm) };
 }
 
 export async function createUnit(
@@ -189,7 +185,7 @@ export async function createUnit(
   const input = unitInput.omit({ active: true }).parse(body);
   const [created] = await db
     .insert(units)
-    .values({ propertyId, ...toUnitRow(input), active: true })
+    .values({ propertyId, ...input, active: true })
     .returning();
   return created;
 }
@@ -207,7 +203,7 @@ export async function updateUnit(
   const input = unitInput.partial().parse(body);
   const [updated] = await db
     .update(units)
-    .set(toUnitRow(input))
+    .set(input)
     .where(and(eq(units.id, id), eq(units.propertyId, propertyId)))
     .returning();
   if (!updated) throw new HttpError(404, "Unit not found");
