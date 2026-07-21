@@ -155,6 +155,14 @@ users (Cognito sub) ──┬── account_memberships ──> accounts ──>
   fiscal entity itself. `association_code` (nullable, short alphanumeric) — generated when the owner creates
   the tenancy, cleared once a tenant links to it via self-registration (Section 4.4); replaces the older
   email/SMS-invite-only flow.
+
+  *Implementation status*: `contract_type` and `tenant_type` are **nullable** (added 2026-07-21,
+  `services/tenancies` phase 1) — neither is knowable until the tenant claims the `association_code`
+  and supplies `tenant_type` (Section 4.4), so the owner-side "create a tenancy, get a code" step can't
+  populate them. `status` (free-form varchar, not an enum) carries the interim lifecycle:
+  `"PENDING_TENANT"` from creation until a tenant claims the code, `"ACTIVE"` after (the bilateral
+  fiscal-collection step that sets `contract_type`/`tenant_type`/clears `association_code` isn't built
+  yet — phase 2).
 - **bnr_exchange_rates** — daily FX reference rates cached from BNR's public feed.
   `id`, `rate_date`, `currency (e.g. EUR)`, `rate_to_ron`. Populated by a scheduled job (see Section 4.6, Section 6); never
   fetched synchronously during invoice generation so the rate used is always reproducible/auditable.

@@ -196,7 +196,11 @@ export const tenancies = pgTable("tenancies", {
   unitId: uuid("unit_id").notNull().references(() => units.id),
   startDate: date("start_date").notNull(),
   endDate: date("end_date"),
-  contractType: contractType("contract_type").notNull(),
+  // Nullable: unknown until the tenant claims the association_code and supplies tenant_type
+  // (Section 4.4) — contract_type is then *derived* from tenant_type × the unit's legal_entity.type,
+  // never asked directly. `status` carries the interim lifecycle ("PENDING_TENANT" until claimed,
+  // "ACTIVE" after) — free-form varchar, not an enum, so this phasing didn't need a schema change.
+  contractType: contractType("contract_type"),
   status: varchar("status", { length: 30 }).notNull(),
   rentAmount: numeric("rent_amount").notNull(),
   rentCurrency: currencyCode("rent_currency").notNull(),
@@ -205,7 +209,8 @@ export const tenancies = pgTable("tenancies", {
   anafC168Registered: boolean("anaf_c168_registered").notNull().default(false),
   anafC168RegistrationDate: date("anaf_c168_registration_date"),
   // Drives the informal B2B/C2B (COMPANY) vs B2C/C2C (INDIVIDUAL) label (Section 1) — not accounts.type.
-  tenantType: tenantType("tenant_type").notNull(),
+  // Nullable for the same reason as contract_type: only the tenant can answer this, at claim time.
+  tenantType: tenantType("tenant_type"),
   // Only set when tenant_type = COMPANY — the fiscal identity for e-Factura (B2B) or the withholding
   // statement (C2B); the individual linked via tenancy_memberships may just be an employee, not the
   // fiscal entity itself.

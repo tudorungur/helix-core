@@ -2,6 +2,8 @@ import { create } from "zustand";
 
 import { legalEntitiesApi, propertiesApi, unitsApi } from "../api/properties";
 import type { ApiLegalEntity, ApiProperty, ApiUnit } from "../api/properties";
+import { tenanciesApi } from "../api/tenancies";
+import type { ApiTenancy } from "../api/tenancies";
 import { useAccountStore } from "./accountStore";
 
 export type LegalForm = "PF" | "PFA" | "II" | "IF" | "SRL" | "SA";
@@ -89,11 +91,12 @@ export type Unit = {
 
 export type RentCurrency = "EUR" | "RON";
 
-// Section 4.4 — a tenancy created on a unit, persisted so the association_code stays accessible
-// (not just shown once at creation time and thrown away). Excludes visually ambiguous characters
-// (0/O, 1/I) in the code — it gets read off one screen and typed into another by hand. **Still
-// entirely mocked/client-side — no tenancies backend exists yet, only legal entities/properties/
-// units (Section 4.3) are real as of this session.**
+// Section 4.4, phase 1 — a tenancy created on a unit, backed by services/tenancies as of this
+// session (owner creates the tenancy + gets an association_code back). `associated` stays
+// **client-only** — the tenant-side "claim the code" step (phase 2: tenant_type, derived
+// contract_type, tenancy_membership) isn't built server-side yet, so there's nothing real to flip
+// it from; it's preserved across re-fetches the same way `Unit.hasActiveTenancy`/`utilities` are
+// (`fromApiTenancy(api, existing)` below), not reset to `false` every time.
 export type Tenancy = {
   id: string;
   unitId: string;
@@ -108,14 +111,17 @@ export type Tenancy = {
   associated: boolean;
 };
 
-const ASSOCIATION_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+// The UI reads/writes dates as ZZ-LL-AAAA (Romanian convention, OwnerTenanciesScreen's own
+// validation); the DB's `date` column (and services/tenancies' zod input) uses ISO YYYY-MM-DD.
+// Converted only at this boundary — everything else in the mobile app keeps using the RO format.
+function toIsoDate(roDate: string): string {
+  const [day, month, year] = roDate.split("-");
+  return `${year}-${month}-${day}`;
+}
 
-function generateAssociationCode(length = 8): string {
-  let code = "";
-  for (let i = 0; i < length; i++) {
-    code += ASSOCIATION_CODE_ALPHABET[Math.floor(Math.random() * ASSOCIATION_CODE_ALPHABET.length)];
-  }
-  return code;
+function fromIsoDate(isoDate: string): string {
+  const [year, month, day] = isoDate.split("-");
+  return `${day}-${month}-${year}`;
 }
 
 const UNIT_TYPE_LABELS: Record<UnitType, string> = {
@@ -260,6 +266,19 @@ function fromApiUnit(api: ApiUnit, existing: Unit | undefined): Unit {
   };
 }
 
+// Preserves the client-only `associated` flag across a re-fetch, same pattern as `fromApiUnit`.
+function fromApiTenancy(api: ApiTenancy, existing: Tenancy | undefined): Tenancy {
+  return {
+    id: api.id,
+    unitId: api.unitId,
+    startDate: fromIsoDate(api.startDate),
+    rentAmount: Number(api.rentAmount),
+    rentCurrency: api.rentCurrency,
+    associationCode: api.associationCode ?? "",
+    associated: existing?.associated ?? false,
+  };
+}
+
 function currentAccountId(): string {
   const accountId = useAccountStore.getState().activeAccountId;
   if (!accountId) throw new Error("Niciun cont încărcat încă");
@@ -296,19 +315,26 @@ type PortfolioState = {
   deleteUnit: (id: string) => Promise<void>;
   setUnitActive: (id: string, active: boolean) => Promise<void>;
   tenancies: Tenancy[];
-  addTenancy: (unitId: string, startDate: string, rentAmount: number, rentCurrency: RentCurrency) => Tenancy;
-  updateTenancy: (id: string, startDate: string, rentAmount: number, rentCurrency: RentCurrency) => void;
-  deleteTenancy: (id: string) => void;
+  addTenancy: (
+    unitId: string,
+    startDate: string,
+    rentAmount: number,
+    rentCurrency: RentCurrency,
+  ) => Promise<Tenancy>;
+  updateTenancy: (id: string, startDate: string, rentAmount: number, rentCurrency: RentCurrency) => Promise<void>;
+  deleteTenancy: (id: string) => Promise<void>;
   associateTenancyByCode: (code: string) => "associated" | "already_associated" | "not_found";
 };
 
-// Section 4.3 — the owner's fiscal identities (legal_entities) and physical inventory (properties →
-// units), independent of who's renting what. Legal entities/properties/units are now **real**,
-// backed by services/properties (Section 6) — every add/update/delete/fetch below calls the live
-// API, scoped to `useAccountStore`'s `activeAccountId`. Tenancies (Section 4.4) are **still entirely
-// mocked/client-side** — no backend for those yet, so `units.hasActiveTenancy` and each unit's
-// `utilities` stay local-only, preserved across re-fetches by `fromApiUnit` rather than being part
-// of what's persisted server-side.
+// Section 4.3/4.4 — the owner's fiscal identities (legal_entities), physical inventory
+// (properties → units), and tenancies are all **real** now, backed by services/properties/
+// services/tenancies (Section 6) — every add/update/delete/fetch below calls the live API, scoped
+// to `useAccountStore`'s `activeAccountId`. Two things remain client-only by deliberate scope
+// decision, not oversight: each unit's `utilities` (no `unit_utilities` endpoint yet) and each
+// tenancy's `associated` flag (the tenant-side "claim the code" step, §4.4 phase 2, isn't built
+// server-side yet) — both preserved across re-fetches (`fromApiUnit`/`fromApiTenancy`) instead of
+// being reset to defaults. `units.hasActiveTenancy`, by contrast, *is* now derived from real fetched
+// tenancy data inside `fetchPortfolio` below, not a client-only guess.
 export const usePortfolioStore = create<PortfolioState>((set, get) => ({
   legalEntities: [],
   properties: [],
@@ -320,16 +346,30 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const accountId = currentAccountId();
-      const [legalEntities, properties, units] = await Promise.all([
+      const [legalEntities, properties, units, tenancies] = await Promise.all([
         legalEntitiesApi.list(accountId),
         propertiesApi.list(accountId),
         unitsApi.list(accountId),
+        tenanciesApi.list(accountId),
       ]);
       const existingUnits = get().units;
+      const existingTenancies = get().tenancies;
+      const nextTenancies = tenancies.map((tenancy) =>
+        fromApiTenancy(tenancy, existingTenancies.find((t) => t.id === tenancy.id)),
+      );
+      // `hasActiveTenancy` is now derived from the real, just-fetched tenancies list (an open
+      // tenancy on the unit), not merged from local state like `utilities` below — tenancies
+      // (unlike utilities) are real server data as of this session, so this is the authoritative
+      // signal, not a client-only guess to preserve.
+      const unitIdsWithTenancy = new Set(nextTenancies.map((tenancy) => tenancy.unitId));
       set({
         legalEntities: legalEntities.map(fromApiLegalEntity),
         properties: properties.map(fromApiProperty),
-        units: units.map((unit) => fromApiUnit(unit, existingUnits.find((u) => u.id === unit.id))),
+        units: units.map((unit) => ({
+          ...fromApiUnit(unit, existingUnits.find((u) => u.id === unit.id)),
+          hasActiveTenancy: unitIdsWithTenancy.has(unit.id),
+        })),
+        tenancies: nextTenancies,
         loading: false,
       });
     } catch (error) {
@@ -412,33 +452,34 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
   },
 
   tenancies: [],
-  addTenancy: (unitId, startDate, rentAmount, rentCurrency) => {
-    const tenancy: Tenancy = {
-      id: crypto.randomUUID(),
-      unitId,
-      startDate,
+  addTenancy: async (unitId, startDate, rentAmount, rentCurrency) => {
+    const created = await tenanciesApi.create(currentAccountId(), unitId, {
+      startDate: toIsoDate(startDate),
       rentAmount,
       rentCurrency,
-      associationCode: generateAssociationCode(),
-      associated: false,
-    };
+    });
+    const tenancy = fromApiTenancy(created, undefined);
     set((state) => ({
       tenancies: [...state.tenancies, tenancy],
-      units: state.units.map((unit) =>
-        unit.id === unitId ? { ...unit, hasActiveTenancy: true } : unit,
-      ),
+      units: state.units.map((unit) => (unit.id === unitId ? { ...unit, hasActiveTenancy: true } : unit)),
     }));
     return tenancy;
   },
-  updateTenancy: (id, startDate, rentAmount, rentCurrency) => {
+  updateTenancy: async (id, startDate, rentAmount, rentCurrency) => {
+    const existing = get().tenancies.find((tenancy) => tenancy.id === id);
+    const updated = await tenanciesApi.update(currentAccountId(), id, {
+      startDate: toIsoDate(startDate),
+      rentAmount,
+      rentCurrency,
+    });
+    const tenancy = fromApiTenancy(updated, existing);
     set((state) => ({
-      tenancies: state.tenancies.map((tenancy) =>
-        tenancy.id === id ? { ...tenancy, startDate, rentAmount, rentCurrency } : tenancy,
-      ),
+      tenancies: state.tenancies.map((t) => (t.id === id ? tenancy : t)),
     }));
   },
-  deleteTenancy: (id) => {
+  deleteTenancy: async (id) => {
     const tenancy = get().tenancies.find((t) => t.id === id);
+    await tenanciesApi.remove(currentAccountId(), id);
     set((state) => ({
       tenancies: state.tenancies.filter((t) => t.id !== id),
       units: tenancy

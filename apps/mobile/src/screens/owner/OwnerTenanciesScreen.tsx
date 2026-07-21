@@ -34,9 +34,10 @@ function unitDisplayLabel(unit: Unit | undefined): string {
 // property→units nesting — so units/tenancies on the same building read as belonging together. Every
 // tenancy tile is tappable to edit its contract terms in place (same pattern as units in Portofoliu —
 // no separate "Editează" button, the whole tile opens the form), with a "Copiază" button on the
-// association code (expo-clipboard) so it doesn't have to be retyped by hand. Still no backend —
-// `addTenancy`/`updateTenancy` are entirely client-side (TODO(backend) below), and nothing survives a
-// fresh app launch.
+// association code (expo-clipboard) so it doesn't have to be retyped by hand. `addTenancy`/
+// `updateTenancy`/`deleteTenancy` call the real services/tenancies API (Section 4.4 phase 1) as of
+// this session — the tenant-side "claim the code" step (phase 2) is still mocked, see
+// `associateTenancyByCode` in portfolioStore.ts.
 export function OwnerTenanciesScreen() {
   const legalEntities = usePortfolioStore((state) => state.legalEntities);
   const units = usePortfolioStore((state) => state.units);
@@ -45,6 +46,8 @@ export function OwnerTenanciesScreen() {
   const addTenancy = usePortfolioStore((state) => state.addTenancy);
   const updateTenancy = usePortfolioStore((state) => state.updateTenancy);
   const deleteTenancy = usePortfolioStore((state) => state.deleteTenancy);
+  const portfolioLoading = usePortfolioStore((state) => state.loading);
+  const portfolioError = usePortfolioStore((state) => state.error);
 
   // Only active, not-yet-rented units are eligible (Section 4.3 — `active` lives on the unit, not
   // the property).
@@ -87,15 +90,21 @@ export function OwnerTenanciesScreen() {
   const currencyValid = currency !== null;
   const formValid = unitValid && startDateValid && rentAmountValid && currencyValid;
 
-  const handleCreateTenancy = () => {
+  const handleApiError = (error: unknown) => {
+    Alert.alert("Eroare", error instanceof Error ? error.message : "A apărut o eroare neașteptată.");
+  };
+
+  const handleCreateTenancy = async () => {
     if (!selectedUnitId || !currency) return;
     setSubmitting(true);
-    // TODO(backend): no API exists yet — this is where the call goes once it does: create
-    // `tenancy(unit_id, start_date, rent_amount, rent_currency)` with a generated
-    // `tenancies.association_code` (Section 4.4). For now `addTenancy` only updates local state.
-    addTenancy(selectedUnitId, startDate, Number(rentAmount), currency);
-    setSubmitting(false);
-    resetForm();
+    try {
+      await addTenancy(selectedUnitId, startDate, Number(rentAmount), currency);
+      resetForm();
+    } catch (error) {
+      handleApiError(error);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   // ---- Editing an existing tenancy's contract terms in place (not the unit — reassigning a
@@ -129,9 +138,13 @@ export function OwnerTenanciesScreen() {
       { text: "Anulează", style: "cancel" },
       {
         text: "Confirmă",
-        onPress: () => {
-          updateTenancy(editingTenancyId, editStartDate, Number(editRentAmount), editCurrency);
-          resetTenancyEdit();
+        onPress: async () => {
+          try {
+            await updateTenancy(editingTenancyId, editStartDate, Number(editRentAmount), editCurrency);
+            resetTenancyEdit();
+          } catch (error) {
+            handleApiError(error);
+          }
         },
       },
     ]);
@@ -146,9 +159,13 @@ export function OwnerTenanciesScreen() {
         {
           text: "Șterge",
           style: "destructive",
-          onPress: () => {
-            deleteTenancy(tenancy.id);
-            resetTenancyEdit();
+          onPress: async () => {
+            try {
+              await deleteTenancy(tenancy.id);
+              resetTenancyEdit();
+            } catch (error) {
+              handleApiError(error);
+            }
           },
         },
       ],
@@ -348,7 +365,11 @@ export function OwnerTenanciesScreen() {
     >
       <Text style={styles.sectionLabel}>Chirii existente</Text>
 
-      {tenancies.length === 0 ? (
+      {tenancies.length === 0 && portfolioLoading ? (
+        <Text style={styles.hint}>Se încarcă...</Text>
+      ) : tenancies.length === 0 && portfolioError ? (
+        <Text style={styles.error}>{portfolioError}</Text>
+      ) : tenancies.length === 0 ? (
         <Text style={styles.hint}>Nu ai încă nicio chirie creată.</Text>
       ) : (
         <>
