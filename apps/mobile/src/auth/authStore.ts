@@ -4,6 +4,7 @@ import {
   CognitoUser,
   CognitoUserSession,
   CognitoUserPool,
+  CognitoRefreshToken,
 } from "amazon-cognito-identity-js";
 import { create } from "zustand";
 
@@ -20,6 +21,7 @@ const SECURE_STORE_KEYS = {
   accessToken: "helix.accessToken",
   idToken: "helix.idToken",
   refreshToken: "helix.refreshToken",
+  username: "helix.username",
 } as const;
 
 // Used by src/api/client.ts to authorize every backend request — the ID token, not the access
@@ -29,10 +31,38 @@ export async function getIdToken(): Promise<string | null> {
   return SecureStore.getItemAsync(SECURE_STORE_KEYS.idToken);
 }
 
-async function persistSession(session: CognitoUserSession) {
+async function persistSession(session: CognitoUserSession, username: string) {
   await SecureStore.setItemAsync(SECURE_STORE_KEYS.accessToken, session.getAccessToken().getJwtToken());
   await SecureStore.setItemAsync(SECURE_STORE_KEYS.idToken, session.getIdToken().getJwtToken());
   await SecureStore.setItemAsync(SECURE_STORE_KEYS.refreshToken, session.getRefreshToken().getToken());
+  await SecureStore.setItemAsync(SECURE_STORE_KEYS.username, username);
+}
+
+// Cognito ID/access tokens expire after 1h; nothing previously refreshed them, so every request
+// started failing with API Gateway's JWT-authorizer-level "Unauthorized" (rejected before the
+// Lambda even runs — no invocation logged) once an hour had passed since sign-in, regardless of
+// which endpoint was being called. Used by src/api/client.ts as a retry-once-on-401 fallback, not
+// proactively — simpler, and the failure mode (one extra round-trip) is cheap.
+export async function refreshIdToken(): Promise<string | null> {
+  const [refreshTokenValue, username] = await Promise.all([
+    SecureStore.getItemAsync(SECURE_STORE_KEYS.refreshToken),
+    SecureStore.getItemAsync(SECURE_STORE_KEYS.username),
+  ]);
+  if (!refreshTokenValue || !username) return null;
+
+  const cognitoUser = new CognitoUser({ Username: username, Pool: userPool });
+  const refreshToken = new CognitoRefreshToken({ RefreshToken: refreshTokenValue });
+
+  return new Promise((resolve) => {
+    cognitoUser.refreshSession(refreshToken, async (err, session: CognitoUserSession | null) => {
+      if (err || !session) {
+        resolve(null);
+        return;
+      }
+      await persistSession(session, username);
+      resolve(session.getIdToken().getJwtToken());
+    });
+  });
 }
 
 type AuthStatus = "checking" | "signedOut" | "newPasswordRequired" | "signedIn";
@@ -65,7 +95,7 @@ export const useAuthStore = create<AuthState>((set) => ({
 
       cognitoUser.authenticateUser(authDetails, {
         onSuccess: async (session) => {
-          await persistSession(session);
+          await persistSession(session, email);
           set({ status: "signedIn" });
           resolve();
         },
@@ -94,10 +124,11 @@ export const useAuthStore = create<AuthState>((set) => ({
         return;
       }
 
+      const username = pendingCognitoUser.getUsername();
       pendingCognitoUser.completeNewPasswordChallenge(newPassword, {}, {
         onSuccess: async (session) => {
           pendingCognitoUser = null;
-          await persistSession(session);
+          await persistSession(session, username);
           set({ status: "signedIn" });
           resolve();
         },
@@ -114,6 +145,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     await SecureStore.deleteItemAsync(SECURE_STORE_KEYS.accessToken);
     await SecureStore.deleteItemAsync(SECURE_STORE_KEYS.idToken);
     await SecureStore.deleteItemAsync(SECURE_STORE_KEYS.refreshToken);
+    await SecureStore.deleteItemAsync(SECURE_STORE_KEYS.username);
     set({ status: "signedOut" });
   },
 
