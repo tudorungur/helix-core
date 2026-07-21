@@ -57,4 +57,14 @@ export const formStyles = StyleSheet.create({
   // visually reads as blocked rather than the normal blue "ready to use" state.
   sectionTriggerDisabled: { borderColor: "#c7c7cc" },
   sectionTriggerTextDisabled: { color: "#8e8e93" },
+  // Shared shape for the two nav-bar chips (ContextTitle's Proprietar/Chiriaș switcher,
+  // SignOutButton's Delogare) — same borderRadius as sectionTrigger above, so every highlighted
+  // "pill" in the app (add-triggers, nav chips) reads as one consistent, subtle style instead of
+  // the nav chips' old fully-rounded (16px) capsule look. Fixed `height` (not paddingVertical) so
+  // both chips are the same height regardless of content — ContextTitle's larger chevron glyph has
+  // a taller intrinsic line height than SignOutButton's plain label text, so vertical padding alone
+  // left them visibly different heights; a fixed height + centered content makes both identical.
+  // Each screen still supplies its own background/text color.
+  navChip: { borderRadius: 8, height: 32, paddingHorizontal: 10, alignItems: "center", justifyContent: "center" },
+  navChipText: { fontSize: 14, fontWeight: "600" },
 });

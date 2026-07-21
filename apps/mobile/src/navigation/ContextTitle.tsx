@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Alert, Modal, Pressable, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { formStyles } from "../components/formStyles";
 import { useContextStore } from "../context/contextStore";
 import type { AppContext } from "../context/contextStore";
 
@@ -60,8 +61,12 @@ export function ContextTitle() {
 
   return (
     <>
-      <TouchableOpacity style={styles.chip} onPress={() => setOpen((current) => !current)} hitSlop={8}>
-        <Text style={styles.text}>{LABELS[activeContext]}</Text>
+      <TouchableOpacity
+        style={[formStyles.navChip, styles.chip]}
+        onPress={() => setOpen((current) => !current)}
+        hitSlop={8}
+      >
+        <Text style={[formStyles.navChipText, styles.text]}>{LABELS[activeContext]}</Text>
         <Text style={styles.chevron}>{open ? "▴" : "▾"}</Text>
       </TouchableOpacity>
       {open ? (
@@ -87,23 +92,15 @@ export function ContextTitle() {
 }
 
 const styles = StyleSheet.create({
-  chip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "#eaf1fd",
-    borderRadius: 16,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-  },
-  text: { fontSize: 15, fontWeight: "600", color: "#1a73e8" },
+  chip: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "#eaf1fd" },
+  text: { color: "#1a73e8" },
   chevron: { fontSize: 22, color: "#1a73e8" },
   backdrop: { flex: 1 },
   dropdown: {
     position: "absolute",
     left: 16,
     backgroundColor: "#fff",
-    borderRadius: 12,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: "#ccc",
     overflow: "hidden",
