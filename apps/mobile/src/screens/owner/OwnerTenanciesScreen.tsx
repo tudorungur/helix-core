@@ -351,85 +351,98 @@ export function OwnerTenanciesScreen() {
             <TouchableOpacity style={styles.sectionTrigger} onPress={() => setFormOpen(true)}>
               <Text style={styles.sectionTriggerText}>+ Adaugă chirie</Text>
             </TouchableOpacity>
-          ) : (
-            <>
-              <Text style={styles.sectionLabel}>Selectează o unitate</Text>
-              {propertiesWithAvailableUnits.map((property) => (
-                <View key={property.id} style={localStyles.propertyGroup}>
-                  <Text style={localStyles.propertyAddress}>{formatPropertyStreetLine(property)}</Text>
-                  <Text style={localStyles.propertyLocality}>{formatPropertyLocalityLine(property)}</Text>
-                  <View style={localStyles.unitList}>
-                    {availableUnits
-                      .filter((unit) => unit.propertyId === property.id)
-                      .map((unit, index) => {
-                        const unitLegalEntity = legalEntities.find((entity) => entity.id === unit.legalEntityId);
-                        return (
-                          <TouchableOpacity
-                            key={unit.id}
-                            style={[
-                              localStyles.unitListRow,
-                              index > 0 && localStyles.unitListRowDivider,
-                              selectedUnitId === unit.id && localStyles.unitListRowSelected,
-                            ]}
-                            onPress={() => setSelectedUnitId(unit.id)}
-                          >
-                            <Text style={localStyles.unitOptionText}>{unit.label}</Text>
-                            <Text style={localStyles.unitTypeCaption}>{unitTypeLabel(unit.type)}</Text>
-                            <Text style={localStyles.unitEntityCaption}>{unitLegalEntity?.name ?? "—"}</Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                  </View>
-
-                  {/* Same pattern as Portofoliu's unit-edit form (Section 4.3) — one form at the bottom
-                      of the whole list, not nested inside whichever row is selected; only that row's own
-                      highlight (above) shows which unit it applies to. */}
-                  {availableUnits.some((unit) => unit.propertyId === property.id && unit.id === selectedUnitId) ? (
-                    <View style={localStyles.contractForm}>
-                      <Text style={styles.sectionLabel}>Data începere contract chirie</Text>
-                      <TextInput
-                        style={styles.input}
-                        placeholder="Dată început (ZZ-LL-AAAA)"
-                        keyboardType="numbers-and-punctuation"
-                        value={startDate}
-                        onChangeText={setStartDate}
-                      />
-                      {startDate.length > 0 && !startDateValid ? (
-                        <Text style={styles.error}>Format așteptat: ZZ-LL-AAAA</Text>
-                      ) : null}
-
-                      <Text style={styles.sectionLabel}>Cost chirie lunară</Text>
-                      <View style={localStyles.rentRow}>
-                        <TextInput
-                          style={[styles.input, localStyles.rentInput]}
-                          placeholder="Chirie"
-                          keyboardType="decimal-pad"
-                          value={rentAmount}
-                          onChangeText={setRentAmount}
-                        />
-                        <Toggle options={CURRENCIES} value={currency} onChange={setCurrency} />
-                      </View>
-
-                      <View style={localStyles.row}>
-                        <TouchableOpacity onPress={handleCreateTenancy} disabled={submitting || !formValid}>
-                          <Text style={submitting || !formValid ? localStyles.actionMuted : localStyles.action}>
-                            Creează chirie
-                          </Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity onPress={resetForm}>
-                          <Text style={localStyles.actionMuted}>Anulează</Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  ) : null}
-                </View>
-              ))}
-            </>
-          )}
+          ) : null}
           <View style={localStyles.sectionDivider} />
         </>
       }
     >
+      {/* Moved out of the pinned `header` (unlike Portofoliu/Setări's own add-forms) — this one's
+          length scales with data (one row per available unit, across every property), so pinning it
+          could push its own contract form off-screen with no way to scroll it back into view. Lives
+          in the normal scroll flow instead: opening it pushes/expands the page, and scrolling up
+          through the unit list flows straight into "Chirii existente" below, in one continuous
+          scroll — no separate pinned/scrolling regions. */}
+      {formOpen ? (
+        <>
+          <View style={localStyles.titleRow}>
+            <Text style={styles.sectionLabel}>Selectează o unitate</Text>
+            <TouchableOpacity onPress={resetForm}>
+              <Text style={localStyles.actionMuted}>Anulează</Text>
+            </TouchableOpacity>
+          </View>
+          {propertiesWithAvailableUnits.map((property) => (
+            <View key={property.id} style={localStyles.propertyGroup}>
+              <Text style={localStyles.propertyAddress}>{formatPropertyStreetLine(property)}</Text>
+              <Text style={localStyles.propertyLocality}>{formatPropertyLocalityLine(property)}</Text>
+              <View style={localStyles.unitList}>
+                {availableUnits
+                  .filter((unit) => unit.propertyId === property.id)
+                  .map((unit, index) => {
+                    const unitLegalEntity = legalEntities.find((entity) => entity.id === unit.legalEntityId);
+                    return (
+                      <TouchableOpacity
+                        key={unit.id}
+                        style={[
+                          localStyles.unitListRow,
+                          index > 0 && localStyles.unitListRowDivider,
+                          selectedUnitId === unit.id && localStyles.unitListRowSelected,
+                        ]}
+                        onPress={() => setSelectedUnitId(unit.id)}
+                      >
+                        <Text style={localStyles.unitOptionText}>{unit.label}</Text>
+                        <Text style={localStyles.unitTypeCaption}>{unitTypeLabel(unit.type)}</Text>
+                        <Text style={localStyles.unitEntityCaption}>{unitLegalEntity?.name ?? "—"}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+              </View>
+
+              {/* Same pattern as Portofoliu's unit-edit form (Section 4.3) — one form at the bottom
+                  of the whole list, not nested inside whichever row is selected; only that row's own
+                  highlight (above) shows which unit it applies to. */}
+              {availableUnits.some((unit) => unit.propertyId === property.id && unit.id === selectedUnitId) ? (
+                <View style={localStyles.contractForm}>
+                  <Text style={styles.sectionLabel}>Data începere contract chirie</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Dată început (ZZ-LL-AAAA)"
+                    keyboardType="numbers-and-punctuation"
+                    value={startDate}
+                    onChangeText={setStartDate}
+                  />
+                  {startDate.length > 0 && !startDateValid ? (
+                    <Text style={styles.error}>Format așteptat: ZZ-LL-AAAA</Text>
+                  ) : null}
+
+                  <Text style={styles.sectionLabel}>Cost chirie lunară</Text>
+                  <View style={localStyles.rentRow}>
+                    <TextInput
+                      style={[styles.input, localStyles.rentInput]}
+                      placeholder="Chirie"
+                      keyboardType="decimal-pad"
+                      value={rentAmount}
+                      onChangeText={setRentAmount}
+                    />
+                    <Toggle options={CURRENCIES} value={currency} onChange={setCurrency} />
+                  </View>
+
+                  <View style={localStyles.row}>
+                    <TouchableOpacity onPress={handleCreateTenancy} disabled={submitting || !formValid}>
+                      <Text style={submitting || !formValid ? localStyles.actionMuted : localStyles.action}>
+                        Creează chirie
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={resetForm}>
+                      <Text style={localStyles.actionMuted}>Anulează</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : null}
+            </View>
+          ))}
+          <View style={localStyles.sectionDivider} />
+        </>
+      ) : null}
       <Text style={styles.sectionLabel}>Chirii existente</Text>
 
       {tenancies.length === 0 && portfolioLoading ? (
