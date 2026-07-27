@@ -4,7 +4,14 @@ import { StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-nativ
 import { FormScreen } from "../../components/FormScreen";
 import { formStyles as styles } from "../../components/formStyles";
 import { Toggle } from "../../components/Toggle";
-import { formatPropertyLocalityLine, formatPropertyStreetLine, unitTypeLabel, usePortfolioStore } from "../../context/portfolioStore";
+import {
+  formatPropertyLocalityLine,
+  formatPropertyStreetLine,
+  unitTypeLabel,
+  usePortfolioStore,
+  utilityTypeLabel,
+  utilityUnitLabel,
+} from "../../context/portfolioStore";
 import type { MyTenancy, TenantType } from "../../context/portfolioStore";
 import { validateCUI } from "../../validators/romanianFiscalId";
 
@@ -17,11 +24,13 @@ const TENANT_TYPES: [{ value: TenantType; label: string }, { value: TenantType; 
 // services/tenancies' POST /tenancies/claim (creates a tenancy_membership on this user server-side,
 // derives contract_type from the unit's legal_entity.type × the tenant_type picked here), and
 // "Chiriile mele" is populated from GET /tenancies/mine — a separate `myTenancies` state slice
-// (portfolioStore.ts), not the owner-scoped `tenancies`/`units`/`properties` arrays a real tenant
-// (no account_membership at all) could never fetch. **What's still missing, not this session**:
-// showing the unit's enabled utilities on each tile — that was possible before only because owner
-// and tenant shared one client-side mock; `unit_utilities` has no backend endpoint yet, and
-// `GET /tenancies/mine` doesn't (and structurally can't yet) return them.
+// (portfolioStore.ts), not the owner-scoped `tenancies`/`properties` arrays a real tenant (no
+// account_membership at all) could never fetch. `units` is the one exception read from that
+// owner-scoped state here too, purely to show utilities+prices — works today because this session's
+// test account is both Owner and Tenant of the same unit (so `units` is already populated from the
+// Owner side's own `fetchPortfolio()`); a genuinely separate tenant (different login, no account at
+// all) would see nothing there, same limitation as before, not fixed by this — `unit_utilities` still
+// has no backend endpoint, `GET /tenancies/mine` still can't return them for a real tenant.
 //
 // Same pinned-header pattern as the Owner CRUD screens (§4.3): the "+ Asociază chirie" trigger (or the
 // open code form) stays fixed above a hairline divider, while "Chiriile mele" scrolls underneath it.
@@ -31,6 +40,7 @@ export function TenantTenanciesScreen() {
   const myTenanciesError = usePortfolioStore((state) => state.myTenanciesError);
   const fetchMyTenancies = usePortfolioStore((state) => state.fetchMyTenancies);
   const claimTenancy = usePortfolioStore((state) => state.claimTenancy);
+  const units = usePortfolioStore((state) => state.units);
 
   useEffect(() => {
     fetchMyTenancies();
@@ -86,18 +96,39 @@ export function TenantTenanciesScreen() {
     new Map(myTenancies.map((tenancy) => [tenancy.property.id, tenancy.property])).values(),
   );
 
-  const renderTenancyTile = (tenancy: MyTenancy, index: number) => (
-    <View
-      key={tenancy.id}
-      style={[localStyles.tenancyListRow, index > 0 && localStyles.tenancyListRowDivider]}
-    >
-      <Text style={localStyles.optionText}>{tenancy.unit.label}</Text>
-      <Text style={localStyles.unitTypeCaption}>{unitTypeLabel(tenancy.unit.type)}</Text>
-      <Text style={localStyles.entityCaption}>
-        Cost chirie (lunar): {tenancy.rentAmount} {tenancy.rentCurrency} · din {tenancy.startDate}
-      </Text>
-    </View>
-  );
+  const renderTenancyTile = (tenancy: MyTenancy, index: number) => {
+    // Live lookup, not a snapshot — see the module comment above for why `units` has data here at
+    // all (only true for this self-testing setup) and why it updates automatically when the owner
+    // changes a utility in Portofoliu (same shared portfolioStore, no separate sync needed).
+    const unit = units.find((u) => u.id === tenancy.unit.id);
+    const enabledUtilities = unit?.utilities.filter((utility) => utility.enabled) ?? [];
+
+    return (
+      <View
+        key={tenancy.id}
+        style={[localStyles.tenancyListRow, index > 0 && localStyles.tenancyListRowDivider]}
+      >
+        <Text style={localStyles.optionText}>{tenancy.unit.label}</Text>
+        <Text style={localStyles.unitTypeCaption}>{unitTypeLabel(tenancy.unit.type)}</Text>
+        <Text style={localStyles.entityCaption}>
+          Cost chirie (lunar): {tenancy.rentAmount} {tenancy.rentCurrency} · din {tenancy.startDate}
+        </Text>
+        {tenancy.associationCode ? (
+          <Text style={localStyles.tenancyCode}>Cod de asociere: {tenancy.associationCode}</Text>
+        ) : null}
+        {enabledUtilities.length > 0 ? (
+          <View style={localStyles.utilitiesBlock}>
+            {enabledUtilities.map((utility) => (
+              <Text key={utility.type} style={localStyles.utilityCaption}>
+                {utilityTypeLabel(utility.type)}: {utility.price.toFixed(2).replace(".", ",")}{" "}
+                {utilityUnitLabel(utility.type)}
+              </Text>
+            ))}
+          </View>
+        ) : null}
+      </View>
+    );
+  };
 
   return (
     <FormScreen
@@ -219,4 +250,7 @@ const localStyles = StyleSheet.create({
   optionText: { fontSize: 15, fontWeight: "600" },
   unitTypeCaption: { fontSize: 12, color: "#8e8e93", marginTop: 2 },
   entityCaption: { fontSize: 12, color: "#8e8e93", marginTop: 2 },
+  tenancyCode: { fontSize: 13, fontWeight: "700", marginTop: 4 },
+  utilitiesBlock: { marginTop: 4 },
+  utilityCaption: { fontSize: 11, color: "#8e8e93", marginTop: 1 },
 });
