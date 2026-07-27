@@ -8,12 +8,17 @@ import type { AccountAccess } from "./auth.js";
 // ---- Legal entities (Section 4.3) — owner-only, same rationale as "requireOwner" in auth.ts: a
 // legal entity isn't scoped to any property/unit, so a collaborator's scope can't apply to it. ----
 
+// `cuiCnp`/`invoiceSeries` accept `null` explicitly, not just "absent" — a PATCH that *omits* a key
+// means "don't touch this column" (Drizzle skips undefined fields in `.set()`), so clearing a
+// previously-set CNP required actually sending `null`, not just leaving the key out. The mobile
+// client sends `null` whenever the field is empty, for exactly this reason (see
+// OwnerSettingsScreen.tsx's submitForm).
 const legalEntityInput = z.object({
   legalForm: z.enum(["PF", "PFA", "II", "IF", "SRL", "SA"]),
   name: z.string().trim().min(1),
-  cuiCnp: z.string().trim().optional(),
+  cuiCnp: z.string().trim().nullable().optional(),
   vatPayer: z.boolean().optional(),
-  invoiceSeries: z.string().trim().optional(),
+  invoiceSeries: z.string().trim().nullable().optional(),
 });
 
 function legalEntityTypeFor(legalForm: z.infer<typeof legalEntityInput>["legalForm"]) {

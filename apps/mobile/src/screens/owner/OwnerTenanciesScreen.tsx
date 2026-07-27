@@ -264,41 +264,49 @@ export function OwnerTenanciesScreen() {
         ) : null}
         {cnpRelevant || c168Relevant ? <View style={localStyles.tileDivider} /> : null}
         {cnpRelevant ? (
-          cnpResolved ? (
-            <Text style={localStyles.resolvedCaption}>
-              ✓ CNP completat pentru entitatea legală {legalEntity?.name ?? ""}.
-            </Text>
-          ) : (
-            <Text style={localStyles.reminderCaption}>
-              ⚠️ Completează CNP-ul entității legale {legalEntity?.name ?? ""} din tab-ul Setări, pentru a
-              putea genera decontul de reținere la sursă.
-            </Text>
-          )
+          <>
+            {cnpResolved ? (
+              <Text style={localStyles.resolvedCaption}>
+                ✓ CNP completat pentru entitatea legală {legalEntity?.name ?? ""}.
+              </Text>
+            ) : (
+              <Text style={localStyles.reminderCaption}>
+                ⚠️ Completează CNP-ul entității legale {legalEntity?.name ?? ""} din tab-ul Setări, pentru a
+                putea genera decontul de reținere la sursă.
+              </Text>
+            )}
+            {/* cnpRelevant only ever fires alongside c168Relevant (both true for
+                C2B_WITHHOLDING) — safe to divide unconditionally here. */}
+            <View style={localStyles.tileDivider} />
+          </>
         ) : null}
         {c168Relevant ? (
-          c168Resolved ? (
-            <Text style={localStyles.resolvedCaption}>
-              ✓ Contract înregistrat la ANAF (Formular 168).
-            </Text>
-          ) : (
-            <View style={localStyles.c168Row}>
-              {/* Mandatory for every individual-landlord tenancy, not just C2B_WITHHOLDING —
-                  registration at ANAF within 30 days applies to all rental contracts by
-                  individuals, C2C included (no exception for informal/unregistered tenancies). */}
-              <Text style={localStyles.reminderCaption}>
-                ⚠️ Contractul trebuie înregistrat la ANAF (Formular 168), în 30 de zile de la semnare.
+          <>
+            {c168Resolved ? (
+              <Text style={localStyles.resolvedCaption}>
+                ✓ Contract înregistrat la ANAF (Formular 168).
               </Text>
-              <TouchableOpacity
-                onPress={(event) => {
-                  event.stopPropagation();
-                  confirmC168(tenancy.id).catch(handleApiError);
-                }}
-                hitSlop={8}
-              >
-                <Text style={localStyles.action}>Am înregistrat C168</Text>
-              </TouchableOpacity>
-            </View>
-          )
+            ) : (
+              <View style={localStyles.c168Row}>
+                {/* Mandatory for every individual-landlord tenancy, not just C2B_WITHHOLDING —
+                    registration at ANAF within 30 days applies to all rental contracts by
+                    individuals, C2C included (no exception for informal/unregistered tenancies). */}
+                <Text style={localStyles.reminderCaption}>
+                  ⚠️ Contractul trebuie înregistrat la ANAF (Formular 168), în 30 de zile de la semnare.
+                </Text>
+                <TouchableOpacity
+                  onPress={(event) => {
+                    event.stopPropagation();
+                    confirmC168(tenancy.id).catch(handleApiError);
+                  }}
+                  hitSlop={8}
+                >
+                  <Text style={localStyles.action}>Am înregistrat C168</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            <View style={localStyles.tileDivider} />
+          </>
         ) : null}
         {/* Purely informational — no self-confirm here, unlike C168/CNP above. Declarația Unică
             (D212) is a yearly obligation per *person*, covering all their rental income together,

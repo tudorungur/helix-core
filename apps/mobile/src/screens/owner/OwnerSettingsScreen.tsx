@@ -112,12 +112,17 @@ export function OwnerSettingsScreen() {
 
   const submitForm = () => {
     if (!formValid || !legalForm) return;
+    // `null`, not `undefined`, whenever a field is empty — omitting a PATCH key means "don't touch
+    // this column" server-side (Drizzle skips undefined fields in `.set()`), which silently failed
+    // to clear a previously-set CNP/invoice series when the user emptied the field and saved: the
+    // old value just stayed in the DB, and the response overwrote the local "cleared" state right
+    // back to the stale value.
     const input = {
       legalForm,
       name: name.trim(),
-      cuiCnp: isBusinessForm ? cui.trim() : cui.trim() || undefined,
+      cuiCnp: cui.trim() || null,
       vatPayer: isBusinessForm ? (vatPayer ?? undefined) : undefined,
-      invoiceSeries: isBusinessForm && invoiceSeries.trim() ? invoiceSeries.trim() : undefined,
+      invoiceSeries: invoiceSeries.trim() || null,
     };
     if (editingId) {
       // Confirm before overwriting an existing legal entity's data — easy to fat-finger a field

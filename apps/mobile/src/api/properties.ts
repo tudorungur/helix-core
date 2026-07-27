@@ -20,9 +20,11 @@ export type ApiLegalEntity = {
 export type ApiLegalEntityInput = {
   legalForm: ApiLegalForm;
   name: string;
-  cuiCnp?: string;
+  // `null` (not just omitted) clears a previously-set value — omitting the key means "don't touch
+  // this column" server-side, which can't express "the user emptied this field."
+  cuiCnp?: string | null;
   vatPayer?: boolean;
-  invoiceSeries?: string;
+  invoiceSeries?: string | null;
 };
 
 export type ApiProperty = {

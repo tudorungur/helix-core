@@ -36,9 +36,9 @@ export type LegalEntity = {
   type: LegalEntityType;
   name: string;
   // Business forms only (PFA/II/IF/SRL/SA) — collected immediately at creation (Section 4.3), since
-  // a CUI-bearing entity has no purpose without its CUI. Persoană Fizică leaves these unset — its
-  // CNP is deferred to the entity's first tenancy (Section 4.4, not built yet), same
-  // data-minimization rationale as before, just scoped to the legal entity instead of the account.
+  // a CUI-bearing entity has no purpose without its CUI. Persoană Fizică's CNP is optional, entered
+  // whenever it's actually needed (e.g. a C2B_WITHHOLDING tenancy's withholding statement) rather
+  // than deferred behind a first-tenancy flow that doesn't exist.
   cuiCnp?: string;
   vatPayer?: boolean;
   invoiceSeries?: string;
@@ -47,9 +47,11 @@ export type LegalEntity = {
 export type LegalEntityInput = {
   legalForm: LegalForm;
   name: string;
-  cuiCnp?: string;
+  // `null` (not just omitted/undefined) explicitly clears a previously-set value on update — see
+  // OwnerSettingsScreen.tsx's submitForm and api/properties.ts's ApiLegalEntityInput for why.
+  cuiCnp?: string | null;
   vatPayer?: boolean;
-  invoiceSeries?: string;
+  invoiceSeries?: string | null;
 };
 
 export type PropertyAddress = {
