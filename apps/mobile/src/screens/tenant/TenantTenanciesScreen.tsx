@@ -108,14 +108,17 @@ export function TenantTenanciesScreen() {
         key={tenancy.id}
         style={[localStyles.tenancyListRow, index > 0 && localStyles.tenancyListRowDivider]}
       >
-        <Text style={localStyles.optionText}>{tenancy.unit.label}</Text>
-        <Text style={localStyles.unitTypeCaption}>{unitTypeLabel(tenancy.unit.type)}</Text>
+        <View style={localStyles.titleRow}>
+          <View style={localStyles.unitInfo}>
+            <Text style={localStyles.optionText}>{tenancy.unit.label}</Text>
+            <Text style={localStyles.unitTypeCaption}>{unitTypeLabel(tenancy.unit.type)}</Text>
+          </View>
+          <Text style={localStyles.unitStatusAssociated}>Asociată</Text>
+        </View>
+        <Text style={localStyles.entityCaption}>Data început: {tenancy.startDate}</Text>
         <Text style={localStyles.entityCaption}>
-          Cost chirie (lunar): {tenancy.rentAmount} {tenancy.rentCurrency} · din {tenancy.startDate}
+          Cost chirie (lunar): {tenancy.rentAmount} {tenancy.rentCurrency}
         </Text>
-        {tenancy.associationCode ? (
-          <Text style={localStyles.tenancyCode}>Cod de asociere: {tenancy.associationCode}</Text>
-        ) : null}
         {enabledUtilities.length > 0 ? (
           <View style={localStyles.utilitiesBlock}>
             {enabledUtilities.map((utility) => (
@@ -125,6 +128,9 @@ export function TenantTenanciesScreen() {
               </Text>
             ))}
           </View>
+        ) : null}
+        {tenancy.associationCode ? (
+          <Text style={localStyles.tenancyCode}>Cod de asociere: {tenancy.associationCode}</Text>
         ) : null}
       </View>
     );
@@ -253,4 +259,10 @@ const localStyles = StyleSheet.create({
   tenancyCode: { fontSize: 13, fontWeight: "700", marginTop: 4 },
   utilitiesBlock: { marginTop: 4 },
   utilityCaption: { fontSize: 11, color: "#8e8e93", marginTop: 1 },
+  // Same "label/subtip + status badge" row as OwnerTenanciesScreen's titleRow/unitInfo, same green
+  // as its unitStatusAssociated — this tile is always "Asociată" (this list only ever holds claimed
+  // tenancies), but shown for visual consistency with the Owner side.
+  titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  unitInfo: { flex: 1 },
+  unitStatusAssociated: { color: "#1a9e5c", fontSize: 12, fontWeight: "600" },
 });
