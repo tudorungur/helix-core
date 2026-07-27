@@ -17,7 +17,7 @@ export type TenantTabsParamList = {
 export const TENANT_TAB_LABELS: Record<keyof TenantTabsParamList, string> = {
   MyTenancies: "Chiriile mele",
   ReadingWizard: "Citire index",
-  MyInvoices: "Facturile mele",
+  MyInvoices: "Facturi",
   Maintenance: "Mentenanță",
   Notifications: "Notificări",
 };
