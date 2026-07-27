@@ -194,13 +194,17 @@ export function OwnerTenanciesScreen() {
     const isActive = tenancy.status === "ACTIVE";
     const legalEntity = unit ? legalEntities.find((entity) => entity.id === unit.legalEntityId) : undefined;
     // §4.10 — the withholding statement needs the owner's own CNP to identify the beneficiary; only
-    // relevant once C2B_WITHHOLDING is actually the derived contract type (i.e. after claim).
-    const needsOwnerCnp = tenancy.contractType === "C2B_WITHHOLDING" && !legalEntity?.cuiCnp;
+    // relevant once C2B_WITHHOLDING is actually the derived contract type (i.e. after claim). Shown
+    // either way once relevant — amber while missing, green once filled in — not hidden the moment
+    // it resolves, so the tile keeps a visible compliance record instead of the line just vanishing.
+    const cnpRelevant = tenancy.contractType === "C2B_WITHHOLDING";
+    const cnpResolved = !!legalEntity?.cuiCnp;
     // §4.4/4.10 — C168 registration is mandatory for C2B_WITHHOLDING, optional (still worth
     // reminding) for UNREGISTERED_C2C, not applicable to REGISTERED_ANAF (e-Factura covers that).
-    const needsC168 =
-      (tenancy.contractType === "C2B_WITHHOLDING" || tenancy.contractType === "UNREGISTERED_C2C") &&
-      !tenancy.anafC168Registered;
+    // Same "stays visible, just flips color" treatment as the CNP line above.
+    const c168Relevant =
+      tenancy.contractType === "C2B_WITHHOLDING" || tenancy.contractType === "UNREGISTERED_C2C";
+    const c168Resolved = tenancy.anafC168Registered;
 
     return (
       <TouchableOpacity
@@ -258,29 +262,41 @@ export function OwnerTenanciesScreen() {
             Acest cod trebuie transmis chiriașului pentru adăugarea unității în aplicația acestuia.
           </Text>
         ) : null}
-        {needsOwnerCnp ? (
-          <Text style={localStyles.reminderCaption}>
-            ⚠️ Completează CNP-ul entității legale {legalEntity?.name ?? ""} din tab-ul Setări, pentru a
-            putea genera decontul de reținere la sursă.
-          </Text>
-        ) : null}
-        {needsC168 ? (
-          <View style={localStyles.c168Row}>
-            <Text style={localStyles.reminderCaption}>
-              {tenancy.contractType === "C2B_WITHHOLDING"
-                ? "⚠️ Contractul trebuie înregistrat la ANAF (Formular 168), în 30 de zile de la semnare."
-                : "⚠️ Recomandat: înregistrează contractul la ANAF (Formular 168)."}
+        {cnpRelevant ? (
+          cnpResolved ? (
+            <Text style={localStyles.resolvedCaption}>
+              ✓ CNP completat pentru entitatea legală {legalEntity?.name ?? ""}.
             </Text>
-            <TouchableOpacity
-              onPress={(event) => {
-                event.stopPropagation();
-                confirmC168(tenancy.id).catch(handleApiError);
-              }}
-              hitSlop={8}
-            >
-              <Text style={localStyles.action}>Am înregistrat C168</Text>
-            </TouchableOpacity>
-          </View>
+          ) : (
+            <Text style={localStyles.reminderCaption}>
+              ⚠️ Completează CNP-ul entității legale {legalEntity?.name ?? ""} din tab-ul Setări, pentru a
+              putea genera decontul de reținere la sursă.
+            </Text>
+          )
+        ) : null}
+        {c168Relevant ? (
+          c168Resolved ? (
+            <Text style={localStyles.resolvedCaption}>
+              ✓ Contract înregistrat la ANAF (Formular 168).
+            </Text>
+          ) : (
+            <View style={localStyles.c168Row}>
+              <Text style={localStyles.reminderCaption}>
+                {tenancy.contractType === "C2B_WITHHOLDING"
+                  ? "⚠️ Contractul trebuie înregistrat la ANAF (Formular 168), în 30 de zile de la semnare."
+                  : "⚠️ Recomandat: înregistrează contractul la ANAF (Formular 168)."}
+              </Text>
+              <TouchableOpacity
+                onPress={(event) => {
+                  event.stopPropagation();
+                  confirmC168(tenancy.id).catch(handleApiError);
+                }}
+                hitSlop={8}
+              >
+                <Text style={localStyles.action}>Am înregistrat C168</Text>
+              </TouchableOpacity>
+            </View>
+          )
         ) : null}
       </TouchableOpacity>
     );
@@ -549,9 +565,13 @@ const localStyles = StyleSheet.create({
   // smaller than its neighbor for no reason, which read as a font mismatch.
   utilityCaption: { fontSize: 12, color: "#8e8e93", marginTop: 1 },
   // Compliance nudges (C168 registration, owner CNP for the withholding statement) — amber, same
-  // family as unitStatusPending, since both signal "still needs attention" rather than an error.
-  reminderCaption: { fontSize: 12, color: "#c77700", marginTop: 4, flex: 1 },
-  c168Row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 2 },
+  // family as unitStatusPending, since both signal "still needs attention" rather than an error. No
+  // marginTop of its own — `tenancyListRow`'s own `gap: 4` already spaces it from its neighbor.
+  reminderCaption: { fontSize: 12, color: "#c77700", flex: 1 },
+  // Same green as unitStatusAssociated — these stay visible once resolved (CNP filled in, C168
+  // confirmed) instead of the line disappearing, so the tile keeps a visible compliance record.
+  resolvedCaption: { fontSize: 12, color: "#1a9e5c" },
+  c168Row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
   row: { flexDirection: "row", alignItems: "center", gap: 16 },
   // Same text-link action row as Portofoliu's unit form (Salvează/Anulează/Șterge as plain links,
   // not a filled button + separate cancel link) — kept identical so both forms read as one pattern.
