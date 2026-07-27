@@ -573,8 +573,13 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
     const created = await tenanciesApi.claim(input);
     // Re-fetch rather than append locally — the claim response is a bare `Tenancy`, not denormalized
     // with unit/property info the way `myTenancies` needs (`fromApiMyTenancy`'s shape), so there's
-    // nothing useful to merge in by hand here.
-    await get().fetchMyTenancies();
+    // nothing useful to merge in by hand here. **Not awaited on purpose**: the caller
+    // (TenantTenanciesScreen) closes its form as soon as this action resolves — awaiting the refetch
+    // here delayed that close until after `myTenanciesLoading` had already flipped true, so the form
+    // briefly stayed open with "Se încarcă..." already showing underneath it. Letting the refetch run
+    // in the background means the form closes immediately once the claim itself succeeds, and
+    // "Se încarcă..." (if the refetch is still in flight) only ever appears after that.
+    get().fetchMyTenancies();
     return fromApiTenancy(created);
   },
 }));
