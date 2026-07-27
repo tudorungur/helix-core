@@ -257,8 +257,15 @@ const localStyles = StyleSheet.create({
   unitTypeCaption: { fontSize: 12, color: "#8e8e93", marginTop: 2 },
   entityCaption: { fontSize: 12, color: "#8e8e93", marginTop: 2 },
   tenancyCode: { fontSize: 13, fontWeight: "700", marginTop: 4 },
-  utilitiesBlock: { marginTop: 4 },
-  utilityCaption: { fontSize: 11, color: "#8e8e93", marginTop: 1 },
+  // No marginTop of its own — `tenancyListRow`'s own `gap: 4` already spaces every direct child
+  // sibling evenly (titleRow, date, rent, this block, the code line); adding a second margin on top
+  // of that gap was what made the utilities block sit noticeably further from the rent line than
+  // every other line was from its neighbor.
+  utilitiesBlock: {},
+  // Same size/color as `entityCaption` (date/rent lines) — was 11px before, one size smaller than
+  // its neighbors for no reason, which read as a font mismatch between "Cost chirie" and the
+  // utility lines right under it.
+  utilityCaption: { fontSize: 12, color: "#8e8e93", marginTop: 1 },
   // Same "label/subtip + status badge" row as OwnerTenanciesScreen's titleRow/unitInfo, same green
   // as its unitStatusAssociated — this tile is always "Asociată" (this list only ever holds claimed
   // tenancies), but shown for visual consistency with the Owner side.

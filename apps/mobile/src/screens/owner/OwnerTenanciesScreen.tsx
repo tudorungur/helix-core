@@ -515,8 +515,13 @@ const localStyles = StyleSheet.create({
   codeRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 6 },
   tenancyCode: { fontSize: 15, fontWeight: "700" },
   codeCaption: { fontSize: 13, color: "#8e8e93", marginTop: 2 },
-  utilitiesBlock: { marginTop: 4 },
-  utilityCaption: { fontSize: 11, color: "#8e8e93", marginTop: 1 },
+  // No marginTop of its own — `tenancyListRow`'s own `gap: 4` already spaces every direct child
+  // sibling evenly; adding a second margin on top of that gap made this block sit noticeably
+  // further from its neighbor than every other line was from its own neighbor.
+  utilitiesBlock: {},
+  // Same size/color as `entityCaption` (the cost line right above) — was 11px before, one size
+  // smaller than its neighbor for no reason, which read as a font mismatch.
+  utilityCaption: { fontSize: 12, color: "#8e8e93", marginTop: 1 },
   // Compliance nudges (C168 registration, owner CNP for the withholding statement) — amber, same
   // family as unitStatusPending, since both signal "still needs attention" rather than an error.
   reminderCaption: { fontSize: 12, color: "#c77700", marginTop: 4, flex: 1 },
