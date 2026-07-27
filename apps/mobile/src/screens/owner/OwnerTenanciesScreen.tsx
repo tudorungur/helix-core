@@ -260,16 +260,16 @@ export function OwnerTenanciesScreen() {
         ) : null}
         {needsOwnerCnp ? (
           <Text style={localStyles.reminderCaption}>
-            Completează CNP-ul entității legale {legalEntity?.name ?? ""} din tab-ul Setări, pentru a putea
-            genera decontul de reținere la sursă.
+            ⚠️ Completează CNP-ul entității legale {legalEntity?.name ?? ""} din tab-ul Setări, pentru a
+            putea genera decontul de reținere la sursă.
           </Text>
         ) : null}
         {needsC168 ? (
           <View style={localStyles.c168Row}>
             <Text style={localStyles.reminderCaption}>
               {tenancy.contractType === "C2B_WITHHOLDING"
-                ? "Contractul trebuie înregistrat la ANAF (Formular 168), în 30 de zile de la semnare."
-                : "Recomandat: înregistrează contractul la ANAF (Formular 168)."}
+                ? "⚠️ Contractul trebuie înregistrat la ANAF (Formular 168), în 30 de zile de la semnare."
+                : "⚠️ Recomandat: înregistrează contractul la ANAF (Formular 168)."}
             </Text>
             <TouchableOpacity
               onPress={(event) => {

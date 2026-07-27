@@ -6,7 +6,7 @@ import { formStyles as styles } from "../../components/formStyles";
 import { Toggle } from "../../components/Toggle";
 import { usePortfolioStore } from "../../context/portfolioStore";
 import type { LegalForm } from "../../context/portfolioStore";
-import { validateCUI } from "../../validators/romanianFiscalId";
+import { validateCNP, validateCUI } from "../../validators/romanianFiscalId";
 
 const VAT_OPTIONS: [{ value: "YES" | "NO"; label: string }, { value: "YES" | "NO"; label: string }] = [
   { value: "YES", label: "Da" },
@@ -26,8 +26,10 @@ const LEGAL_FORMS: { value: LegalForm; label: string }[] = [
 // (that version was removed — the filter/collapse behavior added complexity nobody wanted, and
 // squeezing it above every OwnerTabs screen risked layout bugs). Add/edit/delete only, no
 // selection/filter: business forms collect CUI/VAT/invoice series right away (no purpose without a
-// CUI, duplicate CUI against another of the account's own legal entities is rejected inline),
-// Persoană Fizică just takes a name — CNP stays deferred to the entity's first tenancy (§4.4).
+// CUI, duplicate CUI against another of the account's own legal entities is rejected inline).
+// Persoană Fizică's CNP is optional here (§4.1's data-minimization rationale still applies — it's
+// only actually needed once a C2B_WITHHOLDING tenancy requires it, §4.10) but collectable directly
+// from this screen now, not gated behind a first-tenancy flow that doesn't exist yet.
 export function OwnerSettingsScreen() {
   const legalEntities = usePortfolioStore((state) => state.legalEntities);
   const units = usePortfolioStore((state) => state.units);
@@ -54,10 +56,17 @@ export function OwnerSettingsScreen() {
 
   const isBusinessForm = legalForm !== null && legalForm !== "PF";
   const cuiValid = !isBusinessForm || validateCUI(cui);
+  // CNP is optional for Persoană Fizică (§4.1's data-minimization rationale — only needed once a
+  // C2B_WITHHOLDING tenancy actually requires it, §4.10's withholding statement), unlike CUI which
+  // is required immediately for business forms. `cui` doubles as the CNP field here — same
+  // underlying `legal_entities.cui_cnp` column either way, one text field, not two parallel ones.
+  const cnpFilled = !isBusinessForm && cui.trim().length > 0;
+  const cnpValid = !cnpFilled || validateCNP(cui);
   const normalizeCui = (value: string) => value.trim().replace(/^RO/i, "").toUpperCase();
+  // Uniqueness applies to both CUI and CNP (same column, same DB constraint) — not just business
+  // forms.
   const cuiDuplicate =
     !submitting &&
-    isBusinessForm &&
     cui.trim().length > 0 &&
     legalEntities.some(
       (entity) =>
@@ -66,7 +75,9 @@ export function OwnerSettingsScreen() {
   const formValid =
     legalForm !== null &&
     name.trim().length > 0 &&
-    (!isBusinessForm || (cuiValid && !cuiDuplicate && vatPayer !== null));
+    (isBusinessForm
+      ? cuiValid && !cuiDuplicate && vatPayer !== null
+      : !cnpFilled || (cnpValid && !cuiDuplicate));
 
   const resetForm = () => {
     setFormOpen(false);
@@ -104,7 +115,7 @@ export function OwnerSettingsScreen() {
     const input = {
       legalForm,
       name: name.trim(),
-      cuiCnp: isBusinessForm ? cui.trim() : undefined,
+      cuiCnp: isBusinessForm ? cui.trim() : cui.trim() || undefined,
       vatPayer: isBusinessForm ? (vatPayer ?? undefined) : undefined,
       invoiceSeries: isBusinessForm && invoiceSeries.trim() ? invoiceSeries.trim() : undefined,
     };
@@ -228,7 +239,22 @@ export function OwnerSettingsScreen() {
                 onChangeText={setInvoiceSeries}
               />
             </>
-          ) : null}
+          ) : (
+            <>
+              <TextInput
+                style={styles.input}
+                placeholder="CNP (opțional)"
+                keyboardType="number-pad"
+                maxLength={13}
+                value={cui}
+                onChangeText={setCui}
+              />
+              {cui.length > 0 && !cnpValid ? <Text style={styles.error}>CNP invalid</Text> : null}
+              {cui.length > 0 && cnpValid && cuiDuplicate ? (
+                <Text style={styles.error}>Acest CNP e deja folosit de altă entitate legală</Text>
+              ) : null}
+            </>
+          )}
         </>
       ) : null}
     </>
@@ -297,7 +323,9 @@ export function OwnerSettingsScreen() {
                 {LEGAL_FORMS.find((f) => f.value === entity.legalForm)?.label}
               </Text>
               {entity.cuiCnp ? (
-                <Text style={localStyles.entityCuiCaption}>CUI {entity.cuiCnp}</Text>
+                <Text style={localStyles.entityCuiCaption}>
+                  {entity.legalForm === "PF" ? "CNP" : "CUI"} {entity.cuiCnp}
+                </Text>
               ) : null}
               <View style={localStyles.row}>
                 <TouchableOpacity onPress={() => openEdit(entity.id)}>
