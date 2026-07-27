@@ -615,10 +615,10 @@ const localStyles = StyleSheet.create({
   // Third line, same as Portofoliu's unit rows — label / sub-type / legal entity.
   unitEntityCaption: { fontSize: 12, color: "#8e8e93", marginTop: 2 },
   titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  // Same visual language as Portofoliu's Închiriată/Liberă badge, but a different fact: whether the
-  // tenant has entered the association_code (renamed to "cod de înregistrare" in the UI) in their
-  // own dashboard, not whether the unit has a tenancy contract at all (a unit can be "Închiriată"
-  // with its tenancy still "Chirie neînregistrată").
+  // Same visual language as Portofoliu's "Unitate închiriată"/"Unitate liberă" badge, but a
+  // different fact: whether the tenant has entered the association_code (renamed to "cod de
+  // înregistrare" in the UI) in their own dashboard, not whether the unit has a tenancy contract at
+  // all (a unit can be "Unitate închiriată" with its tenancy still "Chirie neînregistrată").
   unitStatusAssociated: { color: "#1a9e5c", fontSize: 12, fontWeight: "600" },
   unitStatusPending: { color: "#c77700", fontSize: 12, fontWeight: "600" },
   entityCaption: { fontSize: 12, color: "#8e8e93", marginTop: 2 },

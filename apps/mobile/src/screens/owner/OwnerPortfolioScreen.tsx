@@ -466,7 +466,7 @@ export function OwnerPortfolioScreen() {
                         <Text
                           style={unit.hasActiveTenancy ? localStyles.unitStatusRented : localStyles.unitStatusFree}
                         >
-                          {unit.hasActiveTenancy ? "Închiriată" : "Liberă"}
+                          {unit.hasActiveTenancy ? "Unitate închiriată" : "Unitate liberă"}
                         </Text>
                       </TouchableOpacity>
                     );
