@@ -283,16 +283,18 @@ export function OwnerTenanciesScreen() {
         {c168Relevant ? (
           <>
             {c168Resolved ? (
-              <Text style={localStyles.resolvedCaption}>
-                ✓ Contract înregistrat la ANAF (Formular 168).
-              </Text>
+              <Text style={localStyles.resolvedCaption}>✓ Formular 168 depus la ANAF.</Text>
             ) : (
               <View style={localStyles.c168Row}>
                 {/* Mandatory for every individual-landlord tenancy, not just C2B_WITHHOLDING —
                     registration at ANAF within 30 days applies to all rental contracts by
-                    individuals, C2C included (no exception for informal/unregistered tenancies). */}
+                    individuals, C2C included (no exception for informal/unregistered tenancies).
+                    "Depus" not "înregistrat" here on purpose — the status badge above already uses
+                    "Chirie înregistrată/neînregistrată" for a completely different fact (whether the
+                    tenant claimed the code), and reusing "înregistrat" for both read as confusing in
+                    the same tile. */}
                 <Text style={localStyles.reminderCaption}>
-                  ⚠️ Contractul trebuie înregistrat la ANAF (Formular 168), în 30 de zile de la semnare.
+                  ⚠️ Formularul 168 trebuie depus la ANAF, în 30 de zile de la semnarea contractului.
                 </Text>
                 <TouchableOpacity
                   onPress={(event) => {
@@ -301,7 +303,7 @@ export function OwnerTenanciesScreen() {
                   }}
                   hitSlop={8}
                 >
-                  <Text style={localStyles.action}>Am înregistrat C168</Text>
+                  <Text style={localStyles.action}>Am depus C168</Text>
                 </TouchableOpacity>
               </View>
             )}
