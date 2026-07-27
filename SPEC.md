@@ -133,10 +133,19 @@ users (Cognito sub) ──┬── account_memberships ──> accounts ──>
   asking at property-creation time would be premature (the building itself has no inherent type, only
   what's built or subdivided inside it does).
 - **unit_utilities** — utility configuration per unit (the toggles set when adding the property).
-  `id`, `unit_id`, `utility_type [COLD_WATER|HOT_WATER|GAS|ELECTRICITY|INTERNET|TRASH|MAINTENANCE|OTHER]`,
-  `enabled bool`, `tariff_basis [METER_INDEX|FIXED_COST|QUOTA_SHARE|PER_PERSON]`,
-  `unit_price` (for METER_INDEX), `fixed_amount` (for FIXED_COST), `quota_percentage` (for QUOTA_SHARE),
+  `id`, `unit_id`, `utility_type [COLD_WATER|HOT_WATER|GAS|ELECTRICITY|HEATING|INTERNET|TRASH|MAINTENANCE|OTHER]`,
+  `enabled bool`, `tariff_basis [METER_INDEX|FIXED_COST|DECLARED]`,
+  `unit_price` (for METER_INDEX), `fixed_amount` (for FIXED_COST),
   `sequence_order int` — the order used in the photo-capture wizard.
+  `DECLARED` (added 2026-07-27, replacing `QUOTA_SHARE`/`PER_PERSON` — neither had a real use case,
+  since the app never splits one tenancy's bill across its own co-tenants, Section 3.1) covers a cost
+  an external party computes and announces per billing period — typically `HEATING` under
+  termoficare/centralized district heating, where the homeowners' association allocates the
+  building's heating bill (via repartitoare/m²) and just tells the owner a final lei amount each
+  month. **Where that period's declared amount is actually stored isn't decided yet** — a single
+  persisted column on this table (like `fixed_amount`) would misrepresent it as constant when it
+  genuinely varies every billing cycle; this needs its own per-period value, most likely as part of
+  whatever Section 4.6's invoice-generation data model ends up being, not solved here.
 - **tenancies** — the rental contract on a unit.
   `id`, `unit_id`, `start_date`, `end_date`, `contract_type [REGISTERED_ANAF|C2B_WITHHOLDING|UNREGISTERED_C2C]`,
   `status`, `rent_amount`, `rent_currency [EUR|RON]` (base rent as negotiated — in Romania typically
@@ -440,8 +449,9 @@ account with multiple legal entities runs this independently for each), at the e
    The `source_amount`, `source_currency`, `fx_rate_used`, `fx_rate_date` are stored on the invoice line for
    audit purposes. If `rent_currency = RON`, no conversion — the line is just `rent_amount`.
 3. **Utility lines** (always computed directly in RON, no FX involved): index → `(current - previous) ×
-   unit_price`; fixed → `fixed_amount`; quota → `shared_meter_total × quota_percentage`; per person →
-   `cost × number_of_occupants`.
+   unit_price`; fixed → `fixed_amount`; declared → whatever amount the owner entered for that unit_utility
+   this billing period (Section 3.1's `unit_utilities` note — no formula, sourced externally, typically
+   from the homeowners' association).
 4. If `tenancy.contract_type = REGISTERED_ANAF` (B2B/B2C): generate UBL/CII XML, submit to ANAF via the
    issuing legal entity's OAuth token (SPV), store `anaf_upload_id`, generate a PDF, `status = SENT_ANAF`.
 5. If `contract_type = UNREGISTERED_C2C`: generate only an "expense statement" PDF (no ANAF submission),

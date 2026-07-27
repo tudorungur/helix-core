@@ -1,0 +1,1 @@
+ALTER TYPE "public"."utility_type" ADD VALUE 'HEATING' BEFORE 'INTERNET';

@@ -9,11 +9,22 @@ import { useAccountStore } from "./accountStore";
 export type LegalForm = "PF" | "PFA" | "II" | "IF" | "SRL" | "SA";
 export type LegalEntityType = "UNREGISTERED_INDIVIDUAL" | "REGISTERED_INDIVIDUAL" | "REGISTERED_COMPANY";
 export type UnitType = "APARTMENT" | "HOUSE" | "RETAIL" | "WAREHOUSE" | "OFFICE";
+// `HEATING` (added separately from `MAINTENANCE`) — relevant when a building has centralized
+// district heating (termoficare/centrală de bloc) instead of individual apartment boilers: heat
+// cost is a real, recurring, separately-billed line (usually split by repartitoare/m² by the
+// homeowners' association), distinct from generic maintenance fees. With an individual gas boiler
+// (centrală de apartament), there's no separate heating cost at all — it's absorbed into `GAS`.
+// **Not metered by this app** (no reading wizard step for it, §4.5) — unlike gas/electricity/water,
+// nobody photographs a meter for it; the amount is whatever the association announces that month.
+// How the owner is meant to keep this number current month-to-month isn't resolved yet — the
+// existing "set once when configuring the unit" flow (a single persisted price) doesn't fit a cost
+// that genuinely varies every billing cycle; see the discussion this was added from.
 export type UtilityType =
   | "COLD_WATER"
   | "HOT_WATER"
   | "GAS"
   | "ELECTRICITY"
+  | "HEATING"
   | "INTERNET"
   | "TRASH"
   | "MAINTENANCE"
@@ -57,13 +68,13 @@ export type Property = PropertyAddress & {
 };
 
 // One row per utility type on a unit — simplified mock version of the real `unit_utilities` table
-// (SPEC.md §3.1), which also has a `tariffBasis` (index/fixed/quota/per-person) and separate
-// unitPrice/fixedAmount/quotaPercentage fields depending on that basis. Here it's just a flat
-// enabled toggle + a single monthly price (always RON, same as the real schema has no currency on
-// this table) — enough for the mobile mock's toggle+price UI without building the full 4-way tariff
-// picker yet. **Still entirely client-side** — no unit_utilities endpoint exists in
-// services/properties yet, so this doesn't survive a fresh app launch even though legal
-// entities/properties/units themselves now do (Section 4.3's API).
+// (SPEC.md §3.1), which also has a `tariffBasis` (index/fixed/declared) and separate
+// unitPrice/fixedAmount fields depending on that basis. Here it's just a flat enabled toggle + a
+// single monthly price (always RON, same as the real schema has no currency on this table) —
+// enough for the mobile mock's toggle+price UI without building the full tariff-basis picker yet.
+// **Still entirely client-side** — no unit_utilities endpoint exists in services/properties yet, so
+// this doesn't survive a fresh app launch even though legal entities/properties/units themselves
+// now do (Section 4.3's API).
 export type UnitUtility = {
   type: UtilityType;
   enabled: boolean;
@@ -159,6 +170,7 @@ const UTILITY_TYPES: UtilityType[] = [
   "HOT_WATER",
   "GAS",
   "ELECTRICITY",
+  "HEATING",
   "INTERNET",
   "TRASH",
   "MAINTENANCE",
@@ -168,8 +180,9 @@ const UTILITY_TYPES: UtilityType[] = [
 const UTILITY_TYPE_LABELS: Record<UtilityType, string> = {
   COLD_WATER: "Apă rece",
   HOT_WATER: "Apă caldă",
-  GAS: "Gaz",
-  ELECTRICITY: "Curent",
+  GAS: "Gaze naturale",
+  ELECTRICITY: "Energie electrică",
+  HEATING: "Încălzire",
   INTERNET: "Internet",
   TRASH: "Salubritate",
   MAINTENANCE: "Întreținere",
@@ -182,12 +195,15 @@ export function utilityTypeLabel(type: UtilityType): string {
 
 // Metered utilities (water/gas/electricity) are priced per unit of consumption, not a flat monthly
 // fee like internet/salubritate/întreținere — shown next to the price field/tile so "50" reads as
-// "50 RON/m³" or "50 RON/kWh", not an ambiguous flat amount.
+// "50 RON/m³" or "50 RON/kWh", not an ambiguous flat amount. `HEATING` is flat/monthly too, not
+// metered by this app — see the note above `HEATING` in the UtilityType comment: there's no
+// per-unit meter for it here, the owner types in whatever the association announces that month.
 const UTILITY_UNIT_LABELS: Record<UtilityType, string> = {
   COLD_WATER: "RON/m³",
   HOT_WATER: "RON/m³",
   GAS: "RON/m³",
   ELECTRICITY: "RON/kWh",
+  HEATING: "RON/lună",
   INTERNET: "RON/lună",
   TRASH: "RON/lună",
   MAINTENANCE: "RON/lună",

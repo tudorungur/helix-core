@@ -207,6 +207,9 @@ export async function claimTenancy(db: Db, userId: string, body: unknown) {
 
   const contractType = deriveContractType(row.legalEntity.type, input.tenantType);
 
+  // `associationCode` is kept, not nulled — the owner still needs to see which code was used
+  // (Închirieri keeps it visible after association). Re-claiming is already blocked above by the
+  // `status !== "PENDING_TENANT"` check, so clearing it isn't needed for that guard either.
   const [updated] = await db
     .update(tenancies)
     .set({
@@ -215,7 +218,6 @@ export async function claimTenancy(db: Db, userId: string, body: unknown) {
       tenantCompanyCui: input.tenantType === "COMPANY" ? input.tenantCompanyCui : null,
       contractType,
       status: "ACTIVE",
-      associationCode: null,
     })
     .where(eq(tenancies.id, row.tenancy.id))
     .returning();

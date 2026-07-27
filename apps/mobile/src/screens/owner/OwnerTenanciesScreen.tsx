@@ -10,6 +10,8 @@ import {
   formatPropertyStreetLine,
   unitTypeLabel,
   usePortfolioStore,
+  utilityTypeLabel,
+  utilityUnitLabel,
 } from "../../context/portfolioStore";
 import type { RentCurrency, Tenancy, Unit } from "../../context/portfolioStore";
 
@@ -222,18 +224,32 @@ export function OwnerTenanciesScreen() {
         <Text style={localStyles.entityCaption}>
           Cost chirie (lunar): {tenancy.rentAmount} {tenancy.rentCurrency} · din {tenancy.startDate}
         </Text>
+        {/* Kept visible after association too (services/tenancies no longer clears it on claim) —
+            the owner may still need to reference which code was used, not just while pending. */}
+        <View style={localStyles.codeRow}>
+          <Text style={localStyles.tenancyCode}>Cod de asociere: {tenancy.associationCode}</Text>
+          <TouchableOpacity onPress={() => handleCopyCode(tenancy.id, tenancy.associationCode)} hitSlop={8}>
+            <Text style={localStyles.action}>{copiedTenancyId === tenancy.id ? "Copiat ✓" : "Copiază"}</Text>
+          </TouchableOpacity>
+        </View>
         {!isActive ? (
-          <>
-            <View style={localStyles.codeRow}>
-              <Text style={localStyles.tenancyCode}>Cod de asociere: {tenancy.associationCode}</Text>
-              <TouchableOpacity onPress={() => handleCopyCode(tenancy.id, tenancy.associationCode)} hitSlop={8}>
-                <Text style={localStyles.action}>{copiedTenancyId === tenancy.id ? "Copiat ✓" : "Copiază"}</Text>
-              </TouchableOpacity>
-            </View>
-            <Text style={localStyles.codeCaption}>
-              Acest cod trebuie transmis chiriașului pentru adăugarea unității în aplicația acestuia.
-            </Text>
-          </>
+          <Text style={localStyles.codeCaption}>
+            Acest cod trebuie transmis chiriașului pentru adăugarea unității în aplicația acestuia.
+          </Text>
+        ) : null}
+        {/* Reads live from the same `units` the owner edits in Portofoliu (Section 4.3) — updates
+            automatically the moment a toggle/price changes there, no separate sync needed. */}
+        {unit && unit.utilities.some((utility) => utility.enabled) ? (
+          <View style={localStyles.utilitiesBlock}>
+            {unit.utilities
+              .filter((utility) => utility.enabled)
+              .map((utility) => (
+                <Text key={utility.type} style={localStyles.utilityCaption}>
+                  {utilityTypeLabel(utility.type)}: {utility.price.toFixed(2).replace(".", ",")}{" "}
+                  {utilityUnitLabel(utility.type)}
+                </Text>
+              ))}
+          </View>
         ) : null}
         {needsOwnerCnp ? (
           <Text style={localStyles.reminderCaption}>
@@ -499,6 +515,8 @@ const localStyles = StyleSheet.create({
   codeRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 6 },
   tenancyCode: { fontSize: 15, fontWeight: "700" },
   codeCaption: { fontSize: 13, color: "#8e8e93", marginTop: 2 },
+  utilitiesBlock: { marginTop: 4 },
+  utilityCaption: { fontSize: 11, color: "#8e8e93", marginTop: 1 },
   // Compliance nudges (C168 registration, owner CNP for the withholding statement) — amber, same
   // family as unitStatusPending, since both signal "still needs attention" rather than an error.
   reminderCaption: { fontSize: 12, color: "#c77700", marginTop: 4, flex: 1 },

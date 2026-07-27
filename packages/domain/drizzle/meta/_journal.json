@@ -71,6 +71,20 @@
       "when": 1785163556064,
       "tag": "0009_tricky_whizzer",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1785164699668,
+      "tag": "0010_parched_tomorrow_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1785165408680,
+      "tag": "0011_safe_human_cannonball",
+      "breakpoints": true
     }
   ]
 }

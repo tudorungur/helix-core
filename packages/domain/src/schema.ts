@@ -46,17 +46,20 @@ export const utilityType = pgEnum("utility_type", [
   "HOT_WATER",
   "GAS",
   "ELECTRICITY",
+  "HEATING",
   "INTERNET",
   "TRASH",
   "MAINTENANCE",
   "OTHER",
 ]);
-export const tariffBasis = pgEnum("tariff_basis", [
-  "METER_INDEX",
-  "FIXED_COST",
-  "QUOTA_SHARE",
-  "PER_PERSON",
-]);
+// QUOTA_SHARE ("shared_meter_total × quota_percentage") and PER_PERSON ("cost ×
+// number_of_occupants") were removed 2026-07-27 — the app never splits one tenancy's bill across
+// multiple occupants/co-tenants (Section 3.1: one invoice per tenancy, regardless of how many
+// tenancy_memberships it has), so neither had a real use case. DECLARED covers costs an external
+// party (the homeowners' association, most commonly) computes and announces per billing period —
+// no formula, the owner just types in whatever amount was announced (e.g. HEATING under
+// termoficare/centralized district heating, Section 3.1's utility_type note).
+export const tariffBasis = pgEnum("tariff_basis", ["METER_INDEX", "FIXED_COST", "DECLARED"]);
 export const contractType = pgEnum("contract_type", [
   "REGISTERED_ANAF",
   "C2B_WITHHOLDING",
@@ -185,7 +188,6 @@ export const unitUtilities = pgTable("unit_utilities", {
   tariffBasis: tariffBasis("tariff_basis").notNull(),
   unitPrice: numeric("unit_price"), // METER_INDEX
   fixedAmount: numeric("fixed_amount"), // FIXED_COST
-  quotaPercentage: numeric("quota_percentage"), // QUOTA_SHARE
   sequenceOrder: integer("sequence_order").notNull().default(0),
 });
 

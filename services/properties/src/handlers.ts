@@ -152,9 +152,8 @@ export async function deleteProperty(db: Db, access: AccountAccess | null, accou
 // here, not on the property (Section 3.1's note on a mixed-status building). ----
 
 // `units.area_sqm`/`rooms` exist on the table (pre-dating this service) but aren't collected by the
-// mobile app yet and nothing here depends on them functionally (utility QUOTA_SHARE tariffs store a
-// manually-entered `quota_percentage`, not one derived from area) — left out of the API input on
-// purpose until there's an actual use for them. Add back with an explicit numeric→string conversion
+// mobile app yet and nothing depends on them functionally — left out of the API input on purpose
+// until there's an actual use for them. Add back with an explicit numeric→string conversion
 // (`units.area_sqm` is Postgres `numeric`, which Drizzle represents as a string) if that changes.
 const unitInput = z.object({
   legalEntityId: z.string().uuid(),
