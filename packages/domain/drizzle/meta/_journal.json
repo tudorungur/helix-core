@@ -64,6 +64,13 @@
       "when": 1784659230127,
       "tag": "0008_shiny_black_bird",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1785163556064,
+      "tag": "0009_tricky_whizzer",
+      "breakpoints": true
     }
   ]
 }

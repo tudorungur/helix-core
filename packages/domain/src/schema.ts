@@ -230,7 +230,12 @@ export const bnrExchangeRates = pgTable("bnr_exchange_rates", {
 
 export const tenancyMemberships = pgTable("tenancy_memberships", {
   id: uuid("id").primaryKey().defaultRandom(),
-  tenancyId: uuid("tenancy_id").notNull().references(() => tenancies.id),
+  // Cascade: a membership row has no meaning independent of its tenancy — deleting a tenancy
+  // (services/tenancies' deleteTenancy) previously 500'd on any claimed (ACTIVE) tenancy, since the
+  // FK defaulted to NO ACTION and blocked the delete once a tenancy_membership existed for it.
+  tenancyId: uuid("tenancy_id")
+    .notNull()
+    .references(() => tenancies.id, { onDelete: "cascade" }),
   userId: uuid("user_id").notNull().references(() => users.id),
   role: tenancyMembershipRole("role").notNull(),
   invitedAt: timestamp("invited_at", { withTimezone: true }),
