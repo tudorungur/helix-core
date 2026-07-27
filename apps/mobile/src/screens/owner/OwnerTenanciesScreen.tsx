@@ -221,22 +221,10 @@ export function OwnerTenanciesScreen() {
             {isActive ? "Asociat" : "Neasociat"}
           </Text>
         </View>
+        <Text style={localStyles.entityCaption}>Data început: {tenancy.startDate}</Text>
         <Text style={localStyles.entityCaption}>
-          Cost chirie (lunar): {tenancy.rentAmount} {tenancy.rentCurrency} · din {tenancy.startDate}
+          Cost chirie (lunar): {tenancy.rentAmount} {tenancy.rentCurrency}
         </Text>
-        {/* Kept visible after association too (services/tenancies no longer clears it on claim) —
-            the owner may still need to reference which code was used, not just while pending. */}
-        <View style={localStyles.codeRow}>
-          <Text style={localStyles.tenancyCode}>Cod de asociere: {tenancy.associationCode}</Text>
-          <TouchableOpacity onPress={() => handleCopyCode(tenancy.id, tenancy.associationCode)} hitSlop={8}>
-            <Text style={localStyles.action}>{copiedTenancyId === tenancy.id ? "Copiat ✓" : "Copiază"}</Text>
-          </TouchableOpacity>
-        </View>
-        {!isActive ? (
-          <Text style={localStyles.codeCaption}>
-            Acest cod trebuie transmis chiriașului pentru adăugarea unității în aplicația acestuia.
-          </Text>
-        ) : null}
         {/* Reads live from the same `units` the owner edits in Portofoliu (Section 4.3) — updates
             automatically the moment a toggle/price changes there, no separate sync needed. */}
         {unit && unit.utilities.some((utility) => utility.enabled) ? (
@@ -250,6 +238,20 @@ export function OwnerTenanciesScreen() {
                 </Text>
               ))}
           </View>
+        ) : null}
+        {/* Kept visible after association too (services/tenancies no longer clears it on claim) —
+            the owner may still need to reference which code was used, not just while pending. Same
+            relative position (after date/cost/utilities) as TenantTenanciesScreen's own tile. */}
+        <View style={localStyles.codeRow}>
+          <Text style={localStyles.tenancyCode}>Cod de asociere: {tenancy.associationCode}</Text>
+          <TouchableOpacity onPress={() => handleCopyCode(tenancy.id, tenancy.associationCode)} hitSlop={8}>
+            <Text style={localStyles.action}>{copiedTenancyId === tenancy.id ? "Copiat ✓" : "Copiază"}</Text>
+          </TouchableOpacity>
+        </View>
+        {!isActive ? (
+          <Text style={localStyles.codeCaption}>
+            Acest cod trebuie transmis chiriașului pentru adăugarea unității în aplicația acestuia.
+          </Text>
         ) : null}
         {needsOwnerCnp ? (
           <Text style={localStyles.reminderCaption}>
