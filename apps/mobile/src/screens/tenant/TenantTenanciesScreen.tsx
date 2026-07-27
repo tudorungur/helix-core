@@ -115,22 +115,29 @@ export function TenantTenanciesScreen() {
           </View>
           <Text style={localStyles.unitStatusAssociated}>Asociată</Text>
         </View>
+        <View style={localStyles.tileDivider} />
         <Text style={localStyles.entityCaption}>Data început: {tenancy.startDate}</Text>
         <Text style={localStyles.entityCaption}>
           Cost chirie (lunar): {tenancy.rentAmount} {tenancy.rentCurrency}
         </Text>
         {enabledUtilities.length > 0 ? (
-          <View style={localStyles.utilitiesBlock}>
-            {enabledUtilities.map((utility) => (
-              <Text key={utility.type} style={localStyles.utilityCaption}>
-                {utilityTypeLabel(utility.type)}: {utility.price.toFixed(2).replace(".", ",")}{" "}
-                {utilityUnitLabel(utility.type)}
-              </Text>
-            ))}
-          </View>
+          <>
+            <View style={localStyles.tileDivider} />
+            <View style={localStyles.utilitiesBlock}>
+              {enabledUtilities.map((utility) => (
+                <Text key={utility.type} style={localStyles.utilityCaption}>
+                  {utilityTypeLabel(utility.type)}: {utility.price.toFixed(2).replace(".", ",")}{" "}
+                  {utilityUnitLabel(utility.type)}
+                </Text>
+              ))}
+            </View>
+          </>
         ) : null}
         {tenancy.associationCode ? (
-          <Text style={localStyles.tenancyCode}>Cod de asociere: {tenancy.associationCode}</Text>
+          <>
+            <View style={localStyles.tileDivider} />
+            <Text style={localStyles.tenancyCode}>Cod de asociere: {tenancy.associationCode}</Text>
+          </>
         ) : null}
       </View>
     );
@@ -253,14 +260,16 @@ const localStyles = StyleSheet.create({
   tenancyList: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, overflow: "hidden", marginTop: 4 },
   tenancyListRow: { padding: 12, gap: 4 },
   tenancyListRowDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#ccc" },
-  // Matches OwnerTenanciesScreen's own optionText/tenancyCode exactly (16/600 and 15/700) — these
-  // two were the last size mismatches between the tiles (16 vs 15, 15 vs 13). tenancyCode has no
-  // marginTop of its own for the same reason as utilitiesBlock above: `tenancyListRow`'s `gap: 4`
+  // Matches OwnerTenanciesScreen's own optionText/tenancyCode exactly. tenancyCode has no marginTop
+  // of its own for the same reason as utilitiesBlock/tileDivider below: `tenancyListRow`'s `gap: 4`
   // already spaces it from its neighbor.
   optionText: { fontSize: 16, fontWeight: "600" },
   unitTypeCaption: { fontSize: 12, color: "#8e8e93", marginTop: 2 },
   entityCaption: { fontSize: 12, color: "#8e8e93", marginTop: 2 },
-  tenancyCode: { fontSize: 15, fontWeight: "700" },
+  tenancyCode: { fontSize: 12, fontWeight: "700" },
+  // Same hairline as OwnerTenanciesScreen's own tileDivider, between each labeled group in the tile
+  // (label/subtip → date/cost → utilities → cod asociere).
+  tileDivider: { height: StyleSheet.hairlineWidth, backgroundColor: "#ccc" },
   // No marginTop of its own — `tenancyListRow`'s own `gap: 4` already spaces every direct child
   // sibling evenly (titleRow, date, rent, this block, the code line); adding a second margin on top
   // of that gap was what made the utilities block sit noticeably further from the rent line than

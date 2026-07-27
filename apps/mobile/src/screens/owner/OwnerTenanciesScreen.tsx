@@ -221,6 +221,7 @@ export function OwnerTenanciesScreen() {
             {isActive ? "Asociată" : "Neasociată"}
           </Text>
         </View>
+        <View style={localStyles.tileDivider} />
         <Text style={localStyles.entityCaption}>Data început: {tenancy.startDate}</Text>
         <Text style={localStyles.entityCaption}>
           Cost chirie (lunar): {tenancy.rentAmount} {tenancy.rentCurrency}
@@ -228,17 +229,21 @@ export function OwnerTenanciesScreen() {
         {/* Reads live from the same `units` the owner edits in Portofoliu (Section 4.3) — updates
             automatically the moment a toggle/price changes there, no separate sync needed. */}
         {unit && unit.utilities.some((utility) => utility.enabled) ? (
-          <View style={localStyles.utilitiesBlock}>
-            {unit.utilities
-              .filter((utility) => utility.enabled)
-              .map((utility) => (
-                <Text key={utility.type} style={localStyles.utilityCaption}>
-                  {utilityTypeLabel(utility.type)}: {utility.price.toFixed(2).replace(".", ",")}{" "}
-                  {utilityUnitLabel(utility.type)}
-                </Text>
-              ))}
-          </View>
+          <>
+            <View style={localStyles.tileDivider} />
+            <View style={localStyles.utilitiesBlock}>
+              {unit.utilities
+                .filter((utility) => utility.enabled)
+                .map((utility) => (
+                  <Text key={utility.type} style={localStyles.utilityCaption}>
+                    {utilityTypeLabel(utility.type)}: {utility.price.toFixed(2).replace(".", ",")}{" "}
+                    {utilityUnitLabel(utility.type)}
+                  </Text>
+                ))}
+            </View>
+          </>
         ) : null}
+        <View style={localStyles.tileDivider} />
         {/* Kept visible after association too (services/tenancies no longer clears it on claim) —
             the owner may still need to reference which code was used, not just while pending. Same
             relative position (after date/cost/utilities) as TenantTenanciesScreen's own tile. */}
@@ -517,8 +522,12 @@ const localStyles = StyleSheet.create({
   // No marginTop — same reasoning as utilitiesBlock below: `tenancyListRow`'s own `gap: 4` already
   // spaces this from its neighbor, an extra margin here double-spaced it.
   codeRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  tenancyCode: { fontSize: 15, fontWeight: "700" },
+  tenancyCode: { fontSize: 12, fontWeight: "700" },
   codeCaption: { fontSize: 13, color: "#8e8e93", marginTop: 2 },
+  // Same hairline as Portofoliu's sectionDivider, between each labeled group in the tile
+  // (label/subtip → date/cost → utilities → cod asociere) — no marginTop of its own, same reasoning
+  // as utilitiesBlock below: `tenancyListRow`'s own `gap: 4` already spaces it from its neighbors.
+  tileDivider: { height: StyleSheet.hairlineWidth, backgroundColor: "#ccc" },
   // No marginTop of its own — `tenancyListRow`'s own `gap: 4` already spaces every direct child
   // sibling evenly; adding a second margin on top of that gap made this block sit noticeably
   // further from its neighbor than every other line was from its own neighbor.
