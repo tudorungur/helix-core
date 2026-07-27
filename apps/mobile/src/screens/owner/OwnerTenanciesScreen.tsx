@@ -222,7 +222,7 @@ export function OwnerTenanciesScreen() {
             {unit ? <Text style={localStyles.unitTypeCaption}>{unitTypeLabel(unit.type)}</Text> : null}
           </View>
           <Text style={isActive ? localStyles.unitStatusAssociated : localStyles.unitStatusPending}>
-            {isActive ? "Asociată" : "Neasociată"}
+            {isActive ? "Chirie înregistrată" : "Chirie neînregistrată"}
           </Text>
         </View>
         <View style={localStyles.tileDivider} />
@@ -252,7 +252,7 @@ export function OwnerTenanciesScreen() {
             the owner may still need to reference which code was used, not just while pending. Same
             relative position (after date/cost/utilities) as TenantTenanciesScreen's own tile. */}
         <View style={localStyles.codeRow}>
-          <Text style={localStyles.tenancyCode}>Cod de asociere: {tenancy.associationCode}</Text>
+          <Text style={localStyles.tenancyCode}>Cod de înregistrare: {tenancy.associationCode}</Text>
           <TouchableOpacity onPress={() => handleCopyCode(tenancy.id, tenancy.associationCode)} hitSlop={8}>
             <Text style={localStyles.action}>{copiedTenancyId === tenancy.id ? "Copiat ✓" : "Copiază"}</Text>
           </TouchableOpacity>
@@ -576,8 +576,9 @@ const localStyles = StyleSheet.create({
   tenancyCode: { fontSize: 12, fontWeight: "700" },
   codeCaption: { fontSize: 13, color: "#8e8e93", marginTop: 2 },
   // Same hairline as Portofoliu's sectionDivider, between each labeled group in the tile
-  // (label/subtip → date/cost → utilities → cod asociere) — no marginTop of its own, same reasoning
-  // as utilitiesBlock below: `tenancyListRow`'s own `gap: 4` already spaces it from its neighbors.
+  // (label/subtip → date/cost → utilities → cod de înregistrare) — no marginTop of its own, same
+  // reasoning as utilitiesBlock below: `tenancyListRow`'s own `gap: 4` already spaces it from its
+  // neighbors.
   tileDivider: { height: StyleSheet.hairlineWidth, backgroundColor: "#ccc" },
   // No marginTop of its own — `tenancyListRow`'s own `gap: 4` already spaces every direct child
   // sibling evenly; adding a second margin on top of that gap made this block sit noticeably
@@ -605,16 +606,17 @@ const localStyles = StyleSheet.create({
   // a column with no fixed height risked Yoga collapsing it to zero height in some cases.
   unitOptionText: { fontSize: 15, fontWeight: "600" },
   optionText: { fontSize: 16, fontWeight: "600" },
-  // Wraps label + type so they stack as one block that the status badge (Asociată/Neasociată) can
-  // center against, same as Portofoliu's unit rows.
+  // Wraps label + type so they stack as one block that the status badge ("Chirie
+  // înregistrată"/"Chirie neînregistrată") can center against, same as Portofoliu's unit rows.
   unitInfo: { flex: 1 },
   unitTypeCaption: { fontSize: 12, color: "#8e8e93", marginTop: 2 },
   // Third line, same as Portofoliu's unit rows — label / sub-type / legal entity.
   unitEntityCaption: { fontSize: 12, color: "#8e8e93", marginTop: 2 },
   titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   // Same visual language as Portofoliu's Închiriată/Liberă badge, but a different fact: whether the
-  // tenant has entered the association_code in their own dashboard, not whether the unit has a
-  // tenancy contract at all (a unit can be "Închiriată" with its tenancy still "Neasociată").
+  // tenant has entered the association_code (renamed to "cod de înregistrare" in the UI) in their
+  // own dashboard, not whether the unit has a tenancy contract at all (a unit can be "Închiriată"
+  // with its tenancy still "Chirie neînregistrată").
   unitStatusAssociated: { color: "#1a9e5c", fontSize: 12, fontWeight: "600" },
   unitStatusPending: { color: "#c77700", fontSize: 12, fontWeight: "600" },
   entityCaption: { fontSize: 12, color: "#8e8e93", marginTop: 2 },

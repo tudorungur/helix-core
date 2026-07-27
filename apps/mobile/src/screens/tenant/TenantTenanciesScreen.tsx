@@ -113,7 +113,7 @@ export function TenantTenanciesScreen() {
             <Text style={localStyles.optionText}>{tenancy.unit.label}</Text>
             <Text style={localStyles.unitTypeCaption}>{unitTypeLabel(tenancy.unit.type)}</Text>
           </View>
-          <Text style={localStyles.unitStatusAssociated}>Asociată</Text>
+          <Text style={localStyles.unitStatusAssociated}>Chirie înregistrată</Text>
         </View>
         <View style={localStyles.tileDivider} />
         <Text style={localStyles.entityCaption}>Data început: {tenancy.startDate}</Text>
@@ -136,7 +136,7 @@ export function TenantTenanciesScreen() {
         {tenancy.associationCode ? (
           <>
             <View style={localStyles.tileDivider} />
-            <Text style={localStyles.tenancyCode}>Cod de asociere: {tenancy.associationCode}</Text>
+            <Text style={localStyles.tenancyCode}>Cod de înregistrare: {tenancy.associationCode}</Text>
           </>
         ) : null}
       </View>
@@ -152,7 +152,7 @@ export function TenantTenanciesScreen() {
         <>
           {formOpen ? (
             <View style={localStyles.card}>
-              <Text style={styles.sectionLabel}>Cod de asociere</Text>
+              <Text style={styles.sectionLabel}>Cod de înregistrare</Text>
               <TextInput
                 style={styles.input}
                 placeholder="Cod primit de la proprietar"
@@ -268,7 +268,7 @@ const localStyles = StyleSheet.create({
   entityCaption: { fontSize: 12, color: "#8e8e93", marginTop: 2 },
   tenancyCode: { fontSize: 12, fontWeight: "700" },
   // Same hairline as OwnerTenanciesScreen's own tileDivider, between each labeled group in the tile
-  // (label/subtip → date/cost → utilities → cod asociere).
+  // (label/subtip → date/cost → utilities → cod de înregistrare).
   tileDivider: { height: StyleSheet.hairlineWidth, backgroundColor: "#ccc" },
   // No marginTop of its own — `tenancyListRow`'s own `gap: 4` already spaces every direct child
   // sibling evenly (titleRow, date, rent, this block, the code line); adding a second margin on top
@@ -280,8 +280,8 @@ const localStyles = StyleSheet.create({
   // utility lines right under it.
   utilityCaption: { fontSize: 12, color: "#8e8e93", marginTop: 1 },
   // Same "label/subtip + status badge" row as OwnerTenanciesScreen's titleRow/unitInfo, same green
-  // as its unitStatusAssociated — this tile is always "Asociată" (this list only ever holds claimed
-  // tenancies), but shown for visual consistency with the Owner side.
+  // as its unitStatusAssociated — this tile is always "Chirie înregistrată" (this list only ever
+  // holds claimed tenancies), but shown for visual consistency with the Owner side.
   titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   unitInfo: { flex: 1 },
   unitStatusAssociated: { color: "#1a9e5c", fontSize: 12, fontWeight: "600" },
