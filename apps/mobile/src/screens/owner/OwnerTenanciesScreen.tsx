@@ -262,6 +262,7 @@ export function OwnerTenanciesScreen() {
             Acest cod trebuie transmis chiriașului pentru adăugarea unității în aplicația acestuia.
           </Text>
         ) : null}
+        {cnpRelevant || c168Relevant ? <View style={localStyles.tileDivider} /> : null}
         {cnpRelevant ? (
           cnpResolved ? (
             <Text style={localStyles.resolvedCaption}>
