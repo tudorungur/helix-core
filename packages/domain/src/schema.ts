@@ -1,4 +1,4 @@
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
   boolean,
   date,
@@ -8,6 +8,7 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
@@ -65,7 +66,6 @@ export const contractType = pgEnum("contract_type", [
   "C2B_WITHHOLDING",
   "UNREGISTERED_C2C",
 ]);
-export const tenantType = pgEnum("tenant_type", ["INDIVIDUAL", "COMPANY"]);
 export const currencyCode = pgEnum("currency_code", ["EUR", "RON"]);
 export const tenancyMembershipRole = pgEnum("tenancy_membership_role", [
   "PRIMARY_TENANT",
@@ -97,11 +97,13 @@ export const depositPhotoPhase = pgEnum("deposit_photo_phase", ["MOVE_IN", "MOVE
 
 // ---------- Identity & multi-tenancy hierarchy ----------
 
+// No `name` column (dropped 2026-07-27) — a person's identity is collected per-legal_entity instead
+// (Section 4.3/4.4's `legal_entities.legal_name`, `userId`- or `accountId`-scoped), never at the
+// account/user level; SignUp no longer asks for one.
 export const users = pgTable("users", {
   id: uuid("id").primaryKey(), // Cognito sub
   email: varchar("email", { length: 255 }).notNull(),
   phone: varchar("phone", { length: 30 }),
-  name: varchar("name", { length: 200 }),
 });
 
 export const accounts = pgTable("accounts", {
@@ -112,25 +114,44 @@ export const accounts = pgTable("accounts", {
   createdBy: uuid("created_by").references(() => users.id),
 });
 
-// A fiscal identity an account can invoice/be invoiced under — a Persoană Fizică identity (CNP-based)
-// or a specific registered business (PFA/II/IF/SRL/SA, CUI-based). One account can hold multiple —
-// e.g. renting one property as a Persoană Fizică and another through an SRL. Each property picks
-// exactly one, which decides that property's e-Factura eligibility, not the account as a whole.
-export const legalEntities = pgTable("legal_entities", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  accountId: uuid("account_id").notNull().references(() => accounts.id),
-  type: legalEntityType("type").notNull(),
-  legalName: varchar("legal_name", { length: 200 }),
-  // A CNP identifies exactly one person and a CUI exactly one company — either should back at
-  // most one legal entity on the platform, so this is a real key, not just an identifier. Collected
-  // immediately for business types (at property-add time, no purpose without it); deferred to the
-  // entity's first tenancy for UNREGISTERED_INDIVIDUAL (CNP is specially-protected personal data).
-  cuiCnp: varchar("cui_cnp", { length: 20 }).unique(),
-  vatPayer: boolean("vat_payer").notNull().default(false),
-  invoiceSeries: varchar("invoice_series", { length: 10 }),
-  invoiceNextNumber: integer("invoice_next_number").notNull().default(1),
-  anafOauthStatus: varchar("anaf_oauth_status", { length: 30 }),
-});
+// A fiscal identity — a Persoană Fizică identity (CNP-based) or a specific registered business
+// (PFA/II/IF/SRL/SA, CUI-based). Belongs to a person (`userId`), not a workspace: the same identity
+// model now backs both sides of a tenancy — an account's own entities (invoicing as landlord,
+// `accountId` set) and a tenant's own entities (renting as themselves or through a company they
+// control, `userId` set) — exactly one of the two is ever set (2026-07-27 consolidation; previously
+// account-only, with the tenant side duplicating a slimmer ad-hoc name/company shape directly on
+// `tenancies`). One person/account can hold multiple — e.g. renting one property as a Persoană
+// Fizică and another through an SRL. Each unit picks exactly one, which decides that unit's
+// e-Factura eligibility.
+export const legalEntities = pgTable(
+  "legal_entities",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id").references(() => accounts.id),
+    userId: uuid("user_id").references(() => users.id),
+    type: legalEntityType("type").notNull(),
+    legalName: varchar("legal_name", { length: 200 }),
+    // A CNP identifies exactly one person and a CUI exactly one company — either should back at
+    // most one *account's* legal entity (the uniqueness the owner+collaborators matching flow
+    // relies on, Section 3.1) — but not globally: the same person's CNP legitimately backs both
+    // their own account-scoped entity (renting out as a landlord) and their own user-scoped entity
+    // (renting as a tenant elsewhere, Section 4.4) at once, since those are different concerns
+    // entirely. Partial index (account-scoped rows only), not a plain column-level unique — a
+    // table-wide constraint would incorrectly reject that legitimate dual-role case. Collected
+    // immediately for business types (at property-add time, no purpose without it); deferred to the
+    // entity's first tenancy for UNREGISTERED_INDIVIDUAL (CNP is specially-protected personal data).
+    cuiCnp: varchar("cui_cnp", { length: 20 }),
+    vatPayer: boolean("vat_payer").notNull().default(false),
+    invoiceSeries: varchar("invoice_series", { length: 10 }),
+    invoiceNextNumber: integer("invoice_next_number").notNull().default(1),
+    anafOauthStatus: varchar("anaf_oauth_status", { length: 30 }),
+  },
+  (table) => [
+    uniqueIndex("legal_entities_account_cui_cnp_unique")
+      .on(table.cuiCnp)
+      .where(sql`${table.accountId} is not null`),
+  ],
+);
 
 export const accountMemberships = pgTable("account_memberships", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -198,10 +219,11 @@ export const tenancies = pgTable("tenancies", {
   unitId: uuid("unit_id").notNull().references(() => units.id),
   startDate: date("start_date").notNull(),
   endDate: date("end_date"),
-  // Nullable: unknown until the tenant claims the association_code and supplies tenant_type
-  // (Section 4.4) — contract_type is then *derived* from tenant_type × the unit's legal_entity.type,
-  // never asked directly. `status` carries the interim lifecycle ("PENDING_TENANT" until claimed,
-  // "ACTIVE" after) — free-form varchar, not an enum, so this phasing didn't need a schema change.
+  // Nullable: unknown until the tenant claims the association_code and picks which of their own
+  // legal_entities they're renting as (Section 4.4) — contract_type is then *derived* from that
+  // entity's type × the unit's own legal_entity.type, never asked directly. `status` carries the
+  // interim lifecycle ("PENDING_TENANT" until claimed, "ACTIVE" after) — free-form varchar, not an
+  // enum, so this phasing didn't need a schema change.
   contractType: contractType("contract_type"),
   status: varchar("status", { length: 30 }).notNull(),
   rentAmount: numeric("rent_amount").notNull(),
@@ -210,20 +232,13 @@ export const tenancies = pgTable("tenancies", {
   // optional for UNREGISTERED_C2C, not applicable to REGISTERED_ANAF.
   anafC168Registered: boolean("anaf_c168_registered").notNull().default(false),
   anafC168RegistrationDate: date("anaf_c168_registration_date"),
-  // Drives the informal B2B/C2B (COMPANY) vs B2C/C2C (INDIVIDUAL) label (Section 1) — not accounts.type.
-  // Nullable for the same reason as contract_type: only the tenant can answer this, at claim time.
-  tenantType: tenantType("tenant_type"),
-  // Only set when tenant_type = COMPANY — the fiscal identity for e-Factura (B2B) or the withholding
-  // statement (C2B); the individual linked via tenancy_memberships may just be an employee, not the
-  // fiscal entity itself.
-  tenantCompanyName: varchar("tenant_company_name", { length: 200 }),
-  tenantCompanyCui: varchar("tenant_company_cui", { length: 20 }),
-  // Only set when tenant_type = INDIVIDUAL — the tenant's own declared name for *this* tenancy,
-  // entered explicitly at claim time (added 2026-07-27). Deliberately not borrowed from
-  // `users.name` (set once at sign-up, unrelated to any specific tenancy) — same reasoning as
-  // `legal_entities.legal_name` not borrowing from the owner's own `users.name` either: each
-  // relationship declares its own identity explicitly, not inherited tacitly from the account.
-  tenantIndividualName: varchar("tenant_individual_name", { length: 200 }),
+  // The tenant's own declared identity for *this* tenancy — one of their own `legal_entities`
+  // (`userId`-scoped), picked at claim time (2026-07-27 consolidation, replacing the earlier flat
+  // tenant_type/tenant_company_name/tenant_company_cui/tenant_individual_name columns). Same pattern
+  // as `units.legal_entity_id` on the owner side: a live reference, not a snapshot, and drives both
+  // the B2B/C2B/C2C label (Section 1, via its `type`) and the "who's renting" display. Null until
+  // claimed.
+  tenantLegalEntityId: uuid("tenant_legal_entity_id").references(() => legalEntities.id),
   // Generated when the owner creates the tenancy, replacing an email/SMS invite (Section 4.4) — the
   // tenant self-registers and enters this to link. Kept, not cleared, once claimed (Section 4.4's
   // implementation-status note) — the owner still needs to see which code was used.

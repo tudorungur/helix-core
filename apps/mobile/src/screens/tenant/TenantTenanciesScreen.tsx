@@ -3,7 +3,6 @@ import { StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-nativ
 
 import { FormScreen } from "../../components/FormScreen";
 import { formStyles as styles } from "../../components/formStyles";
-import { Toggle } from "../../components/Toggle";
 import {
   formatPropertyLocalityLine,
   formatPropertyStreetLine,
@@ -12,25 +11,23 @@ import {
   utilityTypeLabel,
   utilityUnitLabel,
 } from "../../context/portfolioStore";
-import type { MyTenancy, TenantType } from "../../context/portfolioStore";
-import { validateCUI } from "../../validators/romanianFiscalId";
-
-const TENANT_TYPES: [{ value: TenantType; label: string }, { value: TenantType; label: string }] = [
-  { value: "INDIVIDUAL", label: "Persoană Fizică" },
-  { value: "COMPANY", label: "Firmă" },
-];
+import type { MyTenancy } from "../../context/portfolioStore";
 
 // Section 4.4, phase 2 — the tenant side of linking a tenancy is real now: entering the code calls
 // services/tenancies' POST /tenancies/claim (creates a tenancy_membership on this user server-side,
-// derives contract_type from the unit's legal_entity.type × the tenant_type picked here), and
-// "Chiriile mele" is populated from GET /tenancies/mine — a separate `myTenancies` state slice
-// (portfolioStore.ts), not the owner-scoped `tenancies`/`properties` arrays a real tenant (no
+// derives contract_type from the unit's legal_entity.type × the tenant's own picked legal_entity's
+// type), and "Chiriile mele" is populated from GET /tenancies/mine — a separate `myTenancies` state
+// slice (portfolioStore.ts), not the owner-scoped `tenancies`/`properties` arrays a real tenant (no
 // account_membership at all) could never fetch. `units` is the one exception read from that
 // owner-scoped state here too, purely to show utilities+prices — works today because this session's
 // test account is both Owner and Tenant of the same unit (so `units` is already populated from the
 // Owner side's own `fetchPortfolio()`); a genuinely separate tenant (different login, no account at
 // all) would see nothing there, same limitation as before, not fixed by this — `unit_utilities` still
 // has no backend endpoint, `GET /tenancies/mine` still can't return them for a real tenant.
+//
+// Claiming picks one of the tenant's own `myLegalEntities` (2026-07-27 consolidation — same identity
+// model as the owner's unit-creation form, Section 5.1's TenantSettingsScreen manages the list; this
+// form itself has no inline "add" fallback, same as OwnerPortfolioScreen's own unit form).
 //
 // Same pinned-header pattern as the Owner CRUD screens (§4.3): the "+ Asociază chirie" trigger (or the
 // open code form) stays fixed above a hairline divider, while "Chiriile mele" scrolls underneath it.
@@ -41,53 +38,36 @@ export function TenantTenanciesScreen() {
   const fetchMyTenancies = usePortfolioStore((state) => state.fetchMyTenancies);
   const claimTenancy = usePortfolioStore((state) => state.claimTenancy);
   const units = usePortfolioStore((state) => state.units);
+  const myLegalEntities = usePortfolioStore((state) => state.myLegalEntities);
+  const fetchMyLegalEntities = usePortfolioStore((state) => state.fetchMyLegalEntities);
 
   useEffect(() => {
     fetchMyTenancies();
-  }, [fetchMyTenancies]);
+    fetchMyLegalEntities();
+  }, [fetchMyTenancies, fetchMyLegalEntities]);
 
   const [formOpen, setFormOpen] = useState(false);
   const [associationCode, setAssociationCode] = useState("");
-  const [tenantType, setTenantType] = useState<TenantType | null>(null);
-  const [individualName, setIndividualName] = useState("");
-  const [companyName, setCompanyName] = useState("");
-  const [companyCui, setCompanyCui] = useState("");
+  const [tenantLegalEntityId, setTenantLegalEntityId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const isCompany = tenantType === "COMPANY";
-  const cuiValid = !isCompany || validateCUI(companyCui);
   const codeValid = associationCode.trim().length > 0;
-  const formValid =
-    codeValid &&
-    tenantType !== null &&
-    (isCompany ? companyName.trim().length > 0 && cuiValid : individualName.trim().length > 0);
+  const formValid = codeValid && tenantLegalEntityId !== null;
 
   const resetForm = () => {
     setFormOpen(false);
     setAssociationCode("");
-    setTenantType(null);
-    setIndividualName("");
-    setCompanyName("");
-    setCompanyCui("");
+    setTenantLegalEntityId(null);
     setError(null);
   };
 
   const handleAssociate = async () => {
-    if (!formValid || !tenantType) return;
+    if (!formValid || !tenantLegalEntityId) return;
     setError(null);
     setSubmitting(true);
     try {
-      await claimTenancy(
-        tenantType === "COMPANY"
-          ? {
-              associationCode,
-              tenantType: "COMPANY",
-              tenantCompanyName: companyName.trim(),
-              tenantCompanyCui: companyCui.trim(),
-            }
-          : { associationCode, tenantType: "INDIVIDUAL", tenantIndividualName: individualName.trim() },
-      );
+      await claimTenancy({ associationCode, tenantLegalEntityId });
       resetForm();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Nu am putut asocia chiria");
@@ -106,10 +86,6 @@ export function TenantTenanciesScreen() {
     // changes a utility in Portofoliu (same shared portfolioStore, no separate sync needed).
     const unit = units.find((u) => u.id === tenancy.unit.id);
     const enabledUtilities = unit?.utilities.filter((utility) => utility.enabled) ?? [];
-    // Same identity logic as OwnerTenanciesScreen's own "Chiriaș:" line — whichever field is
-    // actually populated depends on tenantType.
-    const tenantIdentity =
-      tenancy.tenantType === "COMPANY" ? tenancy.tenantCompanyName : tenancy.tenantIndividualName;
 
     return (
       <View
@@ -127,9 +103,7 @@ export function TenantTenanciesScreen() {
         {/* Who's renting to whom — the owner's counterpart to OwnerTenanciesScreen's "Chiriaș:"
             line, from the legal entity denormalized onto GET /tenancies/mine. */}
         <Text style={localStyles.entityCaption}>Proprietar: {tenancy.legalEntity.name}</Text>
-        {tenantIdentity ? (
-          <Text style={localStyles.entityCaption}>Chiriaș: {tenantIdentity}</Text>
-        ) : null}
+        <Text style={localStyles.entityCaption}>Chiriaș: {tenancy.tenantLegalEntity.name}</Text>
         <Text style={localStyles.entityCaption}>Data început: {tenancy.startDate}</Text>
         <Text style={localStyles.entityCaption}>
           Cost chirie (lunar): {tenancy.rentAmount} {tenancy.rentCurrency}
@@ -178,34 +152,29 @@ export function TenantTenanciesScreen() {
                 Proprietarul generează acest cod când creează chiria pentru unitatea ta.
               </Text>
 
-              <Text style={styles.sectionLabel}>Tip chiriaș</Text>
-              <Toggle options={TENANT_TYPES} value={tenantType} onChange={setTenantType} fullWidth />
-
-              {isCompany ? (
-                <>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Denumire firmă"
-                    value={companyName}
-                    onChangeText={setCompanyName}
-                  />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="CUI"
-                    autoCapitalize="characters"
-                    value={companyCui}
-                    onChangeText={setCompanyCui}
-                  />
-                  {companyCui.length > 0 && !cuiValid ? <Text style={styles.error}>CUI invalid</Text> : null}
-                </>
-              ) : tenantType === "INDIVIDUAL" ? (
-                <TextInput
-                  style={styles.input}
-                  placeholder="Nume și prenume"
-                  value={individualName}
-                  onChangeText={setIndividualName}
-                />
-              ) : null}
+              <Text style={styles.sectionLabel}>Chiriaș ca</Text>
+              {myLegalEntities.length === 0 ? (
+                <Text style={styles.hint}>Adaugă mai întâi o entitate legală în panoul de Setări.</Text>
+              ) : (
+                <View style={localStyles.pickerList}>
+                  {myLegalEntities.map((entity, index) => (
+                    <TouchableOpacity
+                      key={entity.id}
+                      style={[
+                        localStyles.pickerOption,
+                        index > 0 && localStyles.pickerOptionDivider,
+                        tenantLegalEntityId === entity.id && localStyles.pickerOptionSelected,
+                      ]}
+                      onPress={() => setTenantLegalEntityId(entity.id)}
+                    >
+                      <Text style={localStyles.pickerOptionText}>{entity.name}</Text>
+                      {tenantLegalEntityId === entity.id ? (
+                        <Text style={localStyles.pickerOptionCheck}>✓</Text>
+                      ) : null}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
 
               {error ? <Text style={styles.error}>{error}</Text> : null}
 
@@ -266,6 +235,13 @@ const localStyles = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "center", gap: 16 },
   action: { color: "#1a73e8", fontWeight: "600" },
   actionMuted: { color: "#8e8e93", fontWeight: "600" },
+  // "Chiriaș ca" entity picker — same pattern as OwnerPortfolioScreen's unit-legalEntity picker.
+  pickerList: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, overflow: "hidden" },
+  pickerOption: { flexDirection: "row", alignItems: "center", gap: 12, padding: 12 },
+  pickerOptionDivider: { borderTopWidth: 1, borderTopColor: "#ccc" },
+  pickerOptionSelected: { backgroundColor: "#eaf1fd" },
+  pickerOptionText: { flex: 1, fontWeight: "600" },
+  pickerOptionCheck: { color: "#1a73e8", fontWeight: "700", fontSize: 16 },
   sectionDivider: { height: StyleSheet.hairlineWidth, backgroundColor: "#ccc", marginTop: 16 },
   propertyGroup: {
     borderWidth: 1,

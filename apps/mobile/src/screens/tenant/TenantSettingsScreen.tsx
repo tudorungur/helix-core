@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 
 import { FormScreen } from "../../components/FormScreen";
@@ -22,58 +22,52 @@ const LEGAL_FORMS: { value: LegalForm; label: string }[] = [
   { value: "SA", label: "Societate pe Acțiuni (SA)" },
 ];
 
-// Section 5.1 — Setări tab. Entități legale live here now, not in a persistent cross-tab header
-// (that version was removed — the filter/collapse behavior added complexity nobody wanted, and
-// squeezing it above every OwnerTabs screen risked layout bugs). Add/edit/delete only, no
-// selection/filter: business forms collect CUI/VAT/invoice series right away (no purpose without a
-// CUI, duplicate CUI against another of the account's own legal entities is rejected inline).
-// Persoană Fizică's CNP is optional here (§4.1's data-minimization rationale still applies — it's
-// only actually needed once a C2B_WITHHOLDING tenancy requires it, §4.10) but collectable directly
-// from this screen now, not gated behind a first-tenancy flow that doesn't exist yet.
-export function OwnerSettingsScreen() {
-  const legalEntities = usePortfolioStore((state) => state.legalEntities);
-  const units = usePortfolioStore((state) => state.units);
-  const portfolioLoading = usePortfolioStore((state) => state.loading);
-  const portfolioError = usePortfolioStore((state) => state.error);
-  const addLegalEntity = usePortfolioStore((state) => state.addLegalEntity);
-  const updateLegalEntity = usePortfolioStore((state) => state.updateLegalEntity);
-  const deleteLegalEntity = usePortfolioStore((state) => state.deleteLegalEntity);
+// Section 5.1 — Chiriaș's own Setări tab, symmetric with OwnerSettingsScreen (2026-07-27
+// consolidation: legal_entities is no longer account-only — a tenant needs the same reusable
+// identity to claim a tenancy under, PF or a company they control, instead of retyping a name/CUI
+// on every claim). `userId`-scoped (`myLegalEntities`), not `accountId`-scoped — a tenant has no
+// account at all. Field-for-field the same form as OwnerSettingsScreen; kept as its own file rather
+// than a shared component since the two screens' surrounding chrome (FormScreen header, delete-usage
+// check below) already diverge and a shared abstraction would need to route around that.
+export function TenantSettingsScreen() {
+  const myLegalEntities = usePortfolioStore((state) => state.myLegalEntities);
+  const myLegalEntitiesLoading = usePortfolioStore((state) => state.myLegalEntitiesLoading);
+  const myLegalEntitiesError = usePortfolioStore((state) => state.myLegalEntitiesError);
+  const fetchMyLegalEntities = usePortfolioStore((state) => state.fetchMyLegalEntities);
+  const addMyLegalEntity = usePortfolioStore((state) => state.addMyLegalEntity);
+  const updateMyLegalEntity = usePortfolioStore((state) => state.updateMyLegalEntity);
+  const deleteMyLegalEntity = usePortfolioStore((state) => state.deleteMyLegalEntity);
+  const myTenancies = usePortfolioStore((state) => state.myTenancies);
+
+  useEffect(() => {
+    fetchMyLegalEntities();
+  }, [fetchMyLegalEntities]);
 
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [legalForm, setLegalForm] = useState<LegalForm | null>(null);
-  // `name` is only used for business forms ("Denumire firmă") now — Persoană Fizică collects Nume
-  // and Prenume as two separate fields below, matching SignUpScreen's pattern, and gets concatenated
-  // into the same `legal_entities.name` column on submit.
+  // `name` is only used for business forms ("Denumire firmă") — Persoană Fizică collects Nume/Prenume
+  // as two separate fields below, concatenated into the same `legal_entities.name` column on submit
+  // (same pattern as OwnerSettingsScreen/SignUpScreen).
   const [name, setName] = useState("");
   const [nume, setNume] = useState("");
   const [prenume, setPrenume] = useState("");
   const [cui, setCui] = useState("");
   const [vatPayer, setVatPayer] = useState<boolean | null>(null);
   const [invoiceSeries, setInvoiceSeries] = useState("");
-  // Set for the span of an add/update request. Guards `cuiDuplicate` below: once `addLegalEntity`
-  // resolves, the store appends the just-created entity to `legalEntities` (its `cuiCnp` is, by
-  // definition, whatever we just typed) — but that's a separate state update from `resetForm()`'s
-  // `setCui("")`, so for one render the new entity is in the list *and* the form still shows the
-  // same CUI, which briefly (and wrongly) flags itself as a duplicate. Suppressing the check while
-  // `submitting` is true covers exactly that window.
+  // Same duplicate-check race guard as OwnerSettingsScreen — see its own comment for the render-order
+  // reasoning.
   const [submitting, setSubmitting] = useState(false);
 
   const isBusinessForm = legalForm !== null && legalForm !== "PF";
   const cuiValid = !isBusinessForm || validateCUI(cui);
-  // CNP is optional for Persoană Fizică (§4.1's data-minimization rationale — only needed once a
-  // C2B_WITHHOLDING tenancy actually requires it, §4.10's withholding statement), unlike CUI which
-  // is required immediately for business forms. `cui` doubles as the CNP field here — same
-  // underlying `legal_entities.cui_cnp` column either way, one text field, not two parallel ones.
   const cnpFilled = !isBusinessForm && cui.trim().length > 0;
   const cnpValid = !cnpFilled || validateCNP(cui);
   const normalizeCui = (value: string) => value.trim().replace(/^RO/i, "").toUpperCase();
-  // Uniqueness applies to both CUI and CNP (same column, same DB constraint) — not just business
-  // forms.
   const cuiDuplicate =
     !submitting &&
     cui.trim().length > 0 &&
-    legalEntities.some(
+    myLegalEntities.some(
       (entity) =>
         entity.id !== editingId && entity.cuiCnp && normalizeCui(entity.cuiCnp) === normalizeCui(cui),
     );
@@ -102,14 +96,13 @@ export function OwnerSettingsScreen() {
   };
 
   const openEdit = (id: string) => {
-    const entity = legalEntities.find((e) => e.id === id);
+    const entity = myLegalEntities.find((e) => e.id === id);
     if (!entity) return;
     setEditingId(id);
     setLegalForm(entity.legalForm);
     if (entity.legalForm === "PF") {
-      // The stored name is a single "Prenume Nume" string (see submitForm) — there's no reliable way
-      // to un-concatenate it back into two fields, so this is a best-effort split on the first space,
-      // matching the order it was joined in.
+      // Best-effort split on the first space — see OwnerSettingsScreen's openEdit for why an exact
+      // round-trip isn't possible once Nume/Prenume are concatenated into one stored column.
       const spaceIndex = entity.name.indexOf(" ");
       setPrenume(spaceIndex === -1 ? entity.name : entity.name.slice(0, spaceIndex));
       setNume(spaceIndex === -1 ? "" : entity.name.slice(spaceIndex + 1));
@@ -128,11 +121,6 @@ export function OwnerSettingsScreen() {
 
   const submitForm = () => {
     if (!formValid || !legalForm) return;
-    // `null`, not `undefined`, whenever a field is empty — omitting a PATCH key means "don't touch
-    // this column" server-side (Drizzle skips undefined fields in `.set()`), which silently failed
-    // to clear a previously-set CNP/invoice series when the user emptied the field and saved: the
-    // old value just stayed in the DB, and the response overwrote the local "cleared" state right
-    // back to the stale value.
     const fullName = isBusinessForm ? name.trim() : `${prenume.trim()} ${nume.trim()}`.trim();
     const input = {
       legalForm,
@@ -142,8 +130,6 @@ export function OwnerSettingsScreen() {
       invoiceSeries: invoiceSeries.trim() || null,
     };
     if (editingId) {
-      // Confirm before overwriting an existing legal entity's data — easy to fat-finger a field
-      // like invoice series without noticing.
       Alert.alert("Confirmi modificările?", `Se salvează modificările pentru ${fullName}.`, [
         { text: "Anulează", style: "cancel" },
         {
@@ -151,7 +137,7 @@ export function OwnerSettingsScreen() {
           onPress: async () => {
             setSubmitting(true);
             try {
-              await updateLegalEntity(editingId, input);
+              await updateMyLegalEntity(editingId, input);
               resetForm();
             } catch (error) {
               handleApiError(error);
@@ -166,7 +152,7 @@ export function OwnerSettingsScreen() {
     setSubmitting(true);
     (async () => {
       try {
-        await addLegalEntity(input);
+        await addMyLegalEntity(input);
         resetForm();
       } catch (error) {
         handleApiError(error);
@@ -177,11 +163,13 @@ export function OwnerSettingsScreen() {
   };
 
   const handleDelete = (id: string, entityName: string) => {
-    const unitCount = units.filter((unit) => unit.legalEntityId === id).length;
+    // The owner-side equivalent warns about units using an entity; a tenant's entity is used by a
+    // claimed tenancy instead (`tenancies.tenant_legal_entity_id`, no cascade) — same rationale.
+    const tenancyCount = myTenancies.filter((tenancy) => tenancy.tenantLegalEntity.id === id).length;
     Alert.alert(
       "Ștergi entitatea legală?",
-      unitCount > 0
-        ? `${entityName} este folosită de ${unitCount} unitate/unități. Va fi ștearsă definitiv.`
+      tenancyCount > 0
+        ? `${entityName} este folosită de ${tenancyCount} chirie/chirii. Va fi ștearsă definitiv.`
         : `${entityName} va fi ștearsă definitiv.`,
       [
         { text: "Anulează", style: "cancel" },
@@ -190,7 +178,7 @@ export function OwnerSettingsScreen() {
           style: "destructive",
           onPress: async () => {
             try {
-              await deleteLegalEntity(id);
+              await deleteMyLegalEntity(id);
             } catch (error) {
               handleApiError(error);
             }
@@ -200,9 +188,6 @@ export function OwnerSettingsScreen() {
     );
   };
 
-  // Shared fields between the "add new" form (top of screen) and an entity's own inline edit form
-  // (Section 5.1 — editing happens in-place, in the same tile, same as units in Portofoliu, not in
-  // a form detached from the entity it belongs to).
   const renderFormFields = () => (
     <>
       <Text style={styles.sectionLabel}>Formă legală</Text>
@@ -323,14 +308,14 @@ export function OwnerSettingsScreen() {
     >
       <Text style={styles.sectionLabel}>Entități legale existente</Text>
 
-      {legalEntities.length === 0 && portfolioLoading ? (
+      {myLegalEntities.length === 0 && myLegalEntitiesLoading ? (
         <Text style={styles.hint}>Se încarcă...</Text>
-      ) : legalEntities.length === 0 && portfolioError ? (
-        <Text style={styles.error}>{portfolioError}</Text>
-      ) : legalEntities.length === 0 ? (
+      ) : myLegalEntities.length === 0 && myLegalEntitiesError ? (
+        <Text style={styles.error}>{myLegalEntitiesError}</Text>
+      ) : myLegalEntities.length === 0 ? (
         <Text style={styles.hint}>Nu ai încă nicio entitate legală adăugată.</Text>
       ) : (
-        legalEntities.map((entity) =>
+        myLegalEntities.map((entity) =>
           editingId === entity.id ? (
             <View key={entity.id} style={[localStyles.card, localStyles.cardEditing]}>
               {renderFormFields()}
@@ -374,8 +359,6 @@ export function OwnerSettingsScreen() {
 }
 
 const localStyles = StyleSheet.create({
-  // Marks the boundary between "add an entity" (trigger/form) and the existing entities below —
-  // same as Închirieri's divider between the add-tenancy block and "Chirii existente".
   sectionDivider: { height: StyleSheet.hairlineWidth, backgroundColor: "#ccc", marginTop: 16 },
   card: {
     borderWidth: 1,
@@ -389,7 +372,6 @@ const localStyles = StyleSheet.create({
   cardEditing: { borderColor: "#1a73e8" },
   row: { flexDirection: "row", alignItems: "center", gap: 16 },
   action: { color: "#1a73e8", fontWeight: "600" },
-  // Slightly bolder than plain text so Anulează reads a bit more prominently, still neutral grey.
   actionMuted: { color: "#8e8e93", fontWeight: "600" },
   actionDestructive: { color: "#d32f2f", fontWeight: "600" },
   optionList: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, overflow: "hidden" },
@@ -398,8 +380,6 @@ const localStyles = StyleSheet.create({
   optionSelected: { backgroundColor: "#eaf1fd" },
   optionText: { flex: 1, fontWeight: "600" },
   optionCheck: { color: "#1a73e8", fontWeight: "700", fontSize: 16 },
-  // Pulled closer than the parent card's own `gap: 8` would give by default — same tight spacing as
-  // Proprietăți/Închirieri's județ/oraș line under stradă/număr.
   entityTypeCaption: { fontSize: 12, color: "#8e8e93", marginTop: -4 },
   entityCuiCaption: { fontSize: 12, color: "#8e8e93", marginTop: -4 },
 });

@@ -1,9 +1,57 @@
 import { and, eq, isNull } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
-import { legalEntities, properties, tenancies, tenancyMemberships, units } from "@helix-core/domain";
+import {
+  legalEntities,
+  legalEntityInputSchema,
+  properties,
+  tenancies,
+  tenancyMemberships,
+  toLegalEntityPatch,
+  toLegalEntityRow,
+  units,
+} from "@helix-core/domain";
 import type { Db } from "@helix-core/domain";
 import { HttpError, canWriteUnit } from "./auth.js";
 import type { AccountAccess } from "./auth.js";
+
+// ---- Tenant's own legal entities (Section 4.4, 2026-07-27 consolidation) — `userId`-scoped, the
+// symmetric counterpart to services/properties' `accountId`-scoped ones: same `legal_entities` row
+// shape and PF/PFA/II/IF/SRL/SA mapping (shared via @helix-core/domain), just owned by a person
+// directly instead of an account/workspace. A tenant claims a tenancy under one of these, same as an
+// owner picks one of theirs for a unit. ----
+
+export async function listMyLegalEntities(db: Db, userId: string) {
+  return db.select().from(legalEntities).where(eq(legalEntities.userId, userId));
+}
+
+export async function createMyLegalEntity(db: Db, userId: string, body: unknown) {
+  const input = legalEntityInputSchema.parse(body);
+  const [created] = await db
+    .insert(legalEntities)
+    .values({ userId, ...toLegalEntityRow(input) })
+    .returning();
+  return created;
+}
+
+export async function updateMyLegalEntity(db: Db, userId: string, id: string, body: unknown) {
+  const input = legalEntityInputSchema.partial().parse(body);
+  const [updated] = await db
+    .update(legalEntities)
+    .set(toLegalEntityPatch(input))
+    .where(and(eq(legalEntities.id, id), eq(legalEntities.userId, userId)))
+    .returning();
+  if (!updated) throw new HttpError(404, "Legal entity not found");
+  return updated;
+}
+
+export async function deleteMyLegalEntity(db: Db, userId: string, id: string) {
+  const [deleted] = await db
+    .delete(legalEntities)
+    .where(and(eq(legalEntities.id, id), eq(legalEntities.userId, userId)))
+    .returning({ id: legalEntities.id });
+  if (!deleted) throw new HttpError(404, "Legal entity not found");
+}
 
 // Section 4.4, phase 1 — the owner picks an unrented unit and creates a tenancy, which generates an
 // association_code to pass along however they like. The bilateral fiscal-collection step a tenant
@@ -47,22 +95,49 @@ function toTenancyPatch(input: Partial<z.infer<typeof tenancyInput>>) {
   };
 }
 
-// Flat, account-wide — same shape as listUnits/listProperties (services/properties' precedent).
-// `tenant_individual_name` is a plain column on `tenancies` now (entered explicitly at claim time,
-// see `claimTenancy` below) — no join needed to surface it, unlike the earlier version of this
-// function which borrowed it from `users.name` via a `tenancy_memberships` join.
+// Flat, account-wide — same shape as listUnits/listProperties (services/properties' precedent), plus
+// a `tenantLegalEntity` denormalized in: the owner has no other way to see who's renting (that
+// legal_entities row is `userId`-scoped to the tenant, not part of the owner's own account at all,
+// Section 4.4's 2026-07-27 consolidation). LEFT JOIN — null until claimed (`tenantLegalEntityId` is
+// null on a PENDING_TENANT tenancy).
 export async function listTenancies(db: Db, access: AccountAccess | null, accountId: string) {
   if (!access) throw new HttpError(403, "No membership on this account");
   const rows = await db
-    .select({ tenancy: tenancies, unit: units })
+    .select({ tenancy: tenancies, unit: units, tenantLegalEntity: legalEntities })
     .from(tenancies)
     .innerJoin(units, eq(units.id, tenancies.unitId))
     .innerJoin(properties, eq(properties.id, units.propertyId))
+    .leftJoin(legalEntities, eq(legalEntities.id, tenancies.tenantLegalEntityId))
     .where(eq(properties.accountId, accountId));
-  if (access.role === "OWNER") return rows.map((row) => row.tenancy);
+  const toApi = (row: (typeof rows)[number]) => ({
+    ...row.tenancy,
+    tenantLegalEntity: row.tenantLegalEntity
+      ? { id: row.tenantLegalEntity.id, name: row.tenantLegalEntity.legalName, type: row.tenantLegalEntity.type }
+      : null,
+  });
+  if (access.role === "OWNER") return rows.map(toApi);
   return rows
     .filter((row) => access.propertyIds.has(row.unit.propertyId) || access.unitIds.has(row.unit.id))
-    .map((row) => row.tenancy);
+    .map(toApi);
+}
+
+// Every handler that returns a single tenancy resolves `tenantLegalEntity` the same way as
+// `listTenancies` — otherwise a create/update/confirmC168 response would silently drop the field the
+// mobile store merges in place (`tenancies: state.tenancies.map(t => t.id === id ? tenancy : t)`),
+// wiping out an already-known tenant identity on the next unrelated edit.
+async function withTenantLegalEntity(db: Db, tenancyId: string) {
+  const [row] = await db
+    .select({ tenancy: tenancies, tenantLegalEntity: legalEntities })
+    .from(tenancies)
+    .leftJoin(legalEntities, eq(legalEntities.id, tenancies.tenantLegalEntityId))
+    .where(eq(tenancies.id, tenancyId))
+    .limit(1);
+  return {
+    ...row.tenancy,
+    tenantLegalEntity: row.tenantLegalEntity
+      ? { id: row.tenantLegalEntity.id, name: row.tenantLegalEntity.legalName, type: row.tenantLegalEntity.type }
+      : null,
+  };
 }
 
 async function getUnitOrThrow(db: Db, accountId: string, unitId: string) {
@@ -105,7 +180,7 @@ export async function createTenancy(
       associationCode: generateAssociationCode(),
     })
     .returning();
-  return created;
+  return withTenantLegalEntity(db, created.id);
 }
 
 async function getTenancyOrThrow(db: Db, accountId: string, id: string) {
@@ -130,12 +205,8 @@ export async function updateTenancy(
   const { tenancy, unit } = await getTenancyOrThrow(db, accountId, id);
   if (!canWriteUnit(access, unit.propertyId, unit.id)) throw new HttpError(403, "No write access to this unit");
   const input = tenancyInput.partial().parse(body);
-  const [updated] = await db
-    .update(tenancies)
-    .set(toTenancyPatch(input))
-    .where(eq(tenancies.id, tenancy.id))
-    .returning();
-  return updated;
+  await db.update(tenancies).set(toTenancyPatch(input)).where(eq(tenancies.id, tenancy.id));
+  return withTenantLegalEntity(db, tenancy.id);
 }
 
 export async function deleteTenancy(db: Db, access: AccountAccess | null, accountId: string, id: string) {
@@ -152,56 +223,51 @@ export async function deleteTenancy(db: Db, access: AccountAccess | null, accoun
 export async function confirmC168(db: Db, access: AccountAccess | null, accountId: string, id: string) {
   const { tenancy, unit } = await getTenancyOrThrow(db, accountId, id);
   if (!canWriteUnit(access, unit.propertyId, unit.id)) throw new HttpError(403, "No write access to this unit");
-  const [updated] = await db
+  await db
     .update(tenancies)
     .set({ anafC168Registered: true, anafC168RegistrationDate: new Date().toISOString().slice(0, 10) })
-    .where(eq(tenancies.id, tenancy.id))
-    .returning();
-  return updated;
+    .where(eq(tenancies.id, tenancy.id));
+  return withTenantLegalEntity(db, tenancy.id);
 }
 
-// ---- Section 4.4, phase 2 — tenant claims an association_code ----
+// ---- Section 4.4, phase 2 — tenant claims an association_code under one of their own legal_entities ----
 // Not account-scoped: the claiming user has no account_membership at all (that's the whole point —
 // they're a tenant, not an owner/collaborator), so there's no `accountId`/`AccountAccess` to check
 // here. Possession of the code is the authorization.
 
-// legal_entities.type doesn't distinguish PFA/II/IF or SRL/SA (Section 3.1) — only whether the
-// owner is UNREGISTERED_INDIVIDUAL matters for deriving contract_type. A registered owner (any
+// legal_entities.type doesn't distinguish PFA/II/IF or SRL/SA (Section 3.1) — only whether either
+// side is UNREGISTERED_INDIVIDUAL matters for deriving contract_type. A registered owner (any
 // business form) always issues e-Factura regardless of who the tenant is — B2B and B2C both map to
 // the same REGISTERED_ANAF value (Section 1's informal labels aren't stored, only the 3-way
-// contract_type enum). Only an unregistered-individual owner branches by tenant_type.
+// contract_type enum). Only an unregistered-individual owner branches by whether the tenant's own
+// entity is registered too — same collapse as the owner side (2026-07-27 consolidation replaced the
+// separate INDIVIDUAL/COMPANY tenant_type with this, symmetric on both sides now).
 function deriveContractType(
-  legalEntityType: "UNREGISTERED_INDIVIDUAL" | "REGISTERED_INDIVIDUAL" | "REGISTERED_COMPANY",
-  tenantType: "INDIVIDUAL" | "COMPANY",
+  ownerLegalEntityType: "UNREGISTERED_INDIVIDUAL" | "REGISTERED_INDIVIDUAL" | "REGISTERED_COMPANY",
+  tenantLegalEntityType: "UNREGISTERED_INDIVIDUAL" | "REGISTERED_INDIVIDUAL" | "REGISTERED_COMPANY",
 ): "REGISTERED_ANAF" | "C2B_WITHHOLDING" | "UNREGISTERED_C2C" {
-  if (legalEntityType !== "UNREGISTERED_INDIVIDUAL") return "REGISTERED_ANAF";
-  return tenantType === "COMPANY" ? "C2B_WITHHOLDING" : "UNREGISTERED_C2C";
+  if (ownerLegalEntityType !== "UNREGISTERED_INDIVIDUAL") return "REGISTERED_ANAF";
+  return tenantLegalEntityType === "UNREGISTERED_INDIVIDUAL" ? "UNREGISTERED_C2C" : "C2B_WITHHOLDING";
 }
 
-// Tenant's own CNP is deliberately never collected (Section 3.1 — not legally required on an
-// invoice to an individual, and `tenancies` has no column for it at all). `tenantIndividualName` is
-// required instead — the tenant's declared name for *this* tenancy (added 2026-07-27), not borrowed
-// from `users.name` (same reasoning as `legal_entities.legal_name` not borrowing it either).
-const claimInput = z.discriminatedUnion("tenantType", [
-  z.object({
-    associationCode: z.string().trim().min(1),
-    tenantType: z.literal("INDIVIDUAL"),
-    tenantIndividualName: z.string().trim().min(1),
-  }),
-  z.object({
-    associationCode: z.string().trim().min(1),
-    tenantType: z.literal("COMPANY"),
-    tenantCompanyName: z.string().trim().min(1),
-    tenantCompanyCui: z.string().trim().min(1),
-  }),
-]);
+const claimInput = z.object({
+  associationCode: z.string().trim().min(1),
+  tenantLegalEntityId: z.string().uuid(),
+});
 
 export async function claimTenancy(db: Db, userId: string, body: unknown) {
   const input = claimInput.parse(body);
   const code = input.associationCode.trim().toUpperCase();
 
+  const [tenantEntity] = await db
+    .select()
+    .from(legalEntities)
+    .where(and(eq(legalEntities.id, input.tenantLegalEntityId), eq(legalEntities.userId, userId)))
+    .limit(1);
+  if (!tenantEntity) throw new HttpError(404, "Entitate legală invalidă");
+
   const [row] = await db
-    .select({ tenancy: tenancies, legalEntity: legalEntities })
+    .select({ tenancy: tenancies, ownerLegalEntity: legalEntities })
     .from(tenancies)
     .innerJoin(units, eq(units.id, tenancies.unitId))
     .innerJoin(legalEntities, eq(legalEntities.id, units.legalEntityId))
@@ -210,23 +276,15 @@ export async function claimTenancy(db: Db, userId: string, body: unknown) {
   if (!row) throw new HttpError(404, "Cod de asociere invalid");
   if (row.tenancy.status !== "PENDING_TENANT") throw new HttpError(409, "Această chirie a fost deja asociată");
 
-  const contractType = deriveContractType(row.legalEntity.type, input.tenantType);
+  const contractType = deriveContractType(row.ownerLegalEntity.type, tenantEntity.type);
 
   // `associationCode` is kept, not nulled — the owner still needs to see which code was used
   // (Închirieri keeps it visible after association). Re-claiming is already blocked above by the
   // `status !== "PENDING_TENANT"` check, so clearing it isn't needed for that guard either.
-  const [updated] = await db
+  await db
     .update(tenancies)
-    .set({
-      tenantType: input.tenantType,
-      tenantCompanyName: input.tenantType === "COMPANY" ? input.tenantCompanyName : null,
-      tenantCompanyCui: input.tenantType === "COMPANY" ? input.tenantCompanyCui : null,
-      tenantIndividualName: input.tenantType === "INDIVIDUAL" ? input.tenantIndividualName : null,
-      contractType,
-      status: "ACTIVE",
-    })
-    .where(eq(tenancies.id, row.tenancy.id))
-    .returning();
+    .set({ tenantLegalEntityId: tenantEntity.id, contractType, status: "ACTIVE" })
+    .where(eq(tenancies.id, row.tenancy.id));
 
   await db.insert(tenancyMemberships).values({
     tenancyId: row.tenancy.id,
@@ -235,23 +293,33 @@ export async function claimTenancy(db: Db, userId: string, body: unknown) {
     acceptedAt: new Date(),
   });
 
-  return updated;
+  return withTenantLegalEntity(db, row.tenancy.id);
 }
 
 // The tenant has no account_membership to scope a request by — this is scoped by
 // tenancy_membership instead, and denormalizes unit/property/legalEntity fields the mobile client
 // needs to display "Chiriile mele" (a real tenant can't separately call
-// GET /accounts/{accountId}/units or .../legal-entities, they have no accountId at all). The
-// legal entity's name is who the tenant is actually renting from; `tenantIndividualName` (their own
-// declared name for this tenancy) is already a plain column on `row.tenancy`, no join needed.
+// GET /accounts/{accountId}/units or .../legal-entities, they have no accountId at all).
+// `legalEntity` is who the tenant is renting *from* (the owner's own entity, via units.legal_entity_id
+// — unrelated to the tenant); `tenantLegalEntity` is who the tenant is renting *as* (their own entity,
+// picked at claim time) — both joins of the same `legal_entities` table, so the second needs an alias.
+const tenantLegalEntities = alias(legalEntities, "tenant_legal_entities");
+
 export async function listMyTenancies(db: Db, userId: string) {
   const rows = await db
-    .select({ tenancy: tenancies, unit: units, property: properties, legalEntity: legalEntities })
+    .select({
+      tenancy: tenancies,
+      unit: units,
+      property: properties,
+      legalEntity: legalEntities,
+      tenantLegalEntity: tenantLegalEntities,
+    })
     .from(tenancyMemberships)
     .innerJoin(tenancies, eq(tenancies.id, tenancyMemberships.tenancyId))
     .innerJoin(units, eq(units.id, tenancies.unitId))
     .innerJoin(properties, eq(properties.id, units.propertyId))
     .innerJoin(legalEntities, eq(legalEntities.id, units.legalEntityId))
+    .innerJoin(tenantLegalEntities, eq(tenantLegalEntities.id, tenancies.tenantLegalEntityId))
     .where(eq(tenancyMemberships.userId, userId));
 
   return rows.map((row) => ({
@@ -267,5 +335,10 @@ export async function listMyTenancies(db: Db, userId: string) {
       county: row.property.county,
     },
     legalEntity: { id: row.legalEntity.id, name: row.legalEntity.legalName },
+    tenantLegalEntity: {
+      id: row.tenantLegalEntity.id,
+      name: row.tenantLegalEntity.legalName,
+      type: row.tenantLegalEntity.type,
+    },
   }));
 }

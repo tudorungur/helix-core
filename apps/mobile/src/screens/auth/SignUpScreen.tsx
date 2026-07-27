@@ -22,14 +22,15 @@ const ROLES: { value: Role; label: string }[] = [
   { value: "TENANT", label: "Chiriaș" },
 ];
 
-// Section 4.1 — landlord and tenant self-registration share this form, split by a role choice, plus
-// the person's own name. Neither role answers a legal-form or *fiscal* question here (CUI/CNP,
-// legal_name, vat_payer, invoice_series) — that moved out of signup entirely: for Proprietar it's
-// asked per legal_entity, when adding a property that needs one (Section 4.3, "Firme" in
-// Portofoliu); for Chiriaș it's asked per tenancy, when linking one (Section 4.4). A single
+// Section 4.1 — landlord and tenant self-registration share this form, split only by a role choice.
+// No name question either (removed 2026-07-27): neither role answers a legal-form, *fiscal*, or even
+// personal-identity question here — that moved out of signup entirely. For Proprietar it's asked per
+// legal_entity, when adding a property that needs one (Section 4.3, "Firme" in Portofoliu); for
+// Chiriaș it's asked per legal_entity too now (Section 5.1's TenantSettingsScreen), picked when
+// claiming a tenancy (Section 4.4) — the same consolidated identity model on both sides. A single
 // signup-time choice was wrong in the first place — the same person can act through different legal
-// forms in different contexts (e.g. renting their own apartment as themselves, but representing a
-// company as a Chiriaș elsewhere).
+// forms (or even different names) in different contexts (e.g. renting their own apartment as
+// themselves, but representing a company as a Chiriaș elsewhere).
 export function SignUpScreen() {
   const [step, setStep] = useState<"form" | "confirm">("form");
   const [cognitoUser, setCognitoUser] = useState<CognitoUser | null>(null);
@@ -39,8 +40,6 @@ export function SignUpScreen() {
   const [confirmPassword, setConfirmPassword] = useState("");
   // null = not yet answered — a role this consequential shouldn't have a silent default either.
   const [role, setRole] = useState<Role | null>(null);
-  const [nume, setNume] = useState("");
-  const [prenume, setPrenume] = useState("");
 
   const [code, setCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -52,9 +51,7 @@ export function SignUpScreen() {
 
   const passwordsMatch = password.length > 0 && password === confirmPassword;
   const roleValid = role !== null;
-  const numeValid = nume.trim().length > 0;
-  const prenumeValid = prenume.trim().length > 0;
-  const formValid = email.trim().length > 0 && passwordsMatch && roleValid && numeValid && prenumeValid;
+  const formValid = email.trim().length > 0 && passwordsMatch && roleValid;
 
   const handleCreateAccount = async () => {
     setError(null);
@@ -106,18 +103,16 @@ export function SignUpScreen() {
       // contextStore.ts for why this is a session-only guess, not real membership data.
       if (role) setAvailableContexts([role]);
 
-      // Section 4.1 onboarding: OWNER creates accounts(name) + account_membership(role=OWNER) (name
-      // defaults to the person's own name — Section 3.1), TENANT just upserts their users row (no
-      // account until their first tenancy, §4.4, not built yet). AppStack also fetches accounts on
-      // mount, but that can race ahead of sign-up finishing (signIn()'s state flip and this
-      // continuation aren't guaranteed to be ordered) — explicitly re-fetching here overwrites
+      // Section 4.1 onboarding: OWNER creates accounts + account_membership(role=OWNER), TENANT just
+      // upserts their users row (no account until their first tenancy, §4.4). AppStack also fetches
+      // accounts on mount, but that can race ahead of sign-up finishing (signIn()'s state flip and
+      // this continuation aren't guaranteed to be ordered) — explicitly re-fetching here overwrites
       // whatever that earlier, possibly-empty race left behind.
-      const name = `${prenume.trim()} ${nume.trim()}`.trim();
       if (role === "OWNER") {
-        await createAccount(name);
+        await createAccount();
         await fetchAccounts();
       } else {
-        await upsertSelf(name);
+        await upsertSelf();
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Nu am putut finaliza înregistrarea");
@@ -194,10 +189,6 @@ export function SignUpScreen() {
           </TouchableOpacity>
         ))}
       </View>
-
-      <Text style={styles.sectionLabel}>Date personale</Text>
-      <TextInput style={styles.input} placeholder="Nume" value={nume} onChangeText={setNume} />
-      <TextInput style={styles.input} placeholder="Prenume" value={prenume} onChangeText={setPrenume} />
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <TouchableOpacity

@@ -120,5 +120,9 @@ module "tenancies_lambda" {
     "DELETE /accounts/{accountId}/tenancies/{id}",
     "POST /tenancies/claim",
     "GET /tenancies/mine",
+    "GET /legal-entities/mine",
+    "POST /legal-entities/mine",
+    "PATCH /legal-entities/mine/{id}",
+    "DELETE /legal-entities/mine/{id}",
   ]
 }

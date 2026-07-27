@@ -1,56 +1,22 @@
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
-import { legalEntities, properties, units } from "@helix-core/domain";
+import {
+  legalEntities,
+  legalEntityInputSchema,
+  properties,
+  toLegalEntityPatch,
+  toLegalEntityRow,
+  units,
+} from "@helix-core/domain";
 import type { Db } from "@helix-core/domain";
 import { HttpError, canWriteProperty, canWriteUnit, requireOwner } from "./auth.js";
 import type { AccountAccess } from "./auth.js";
 
 // ---- Legal entities (Section 4.3) — owner-only, same rationale as "requireOwner" in auth.ts: a
-// legal entity isn't scoped to any property/unit, so a collaborator's scope can't apply to it. ----
-
-// `cuiCnp`/`invoiceSeries` accept `null` explicitly, not just "absent" — a PATCH that *omits* a key
-// means "don't touch this column" (Drizzle skips undefined fields in `.set()`), so clearing a
-// previously-set CNP required actually sending `null`, not just leaving the key out. The mobile
-// client sends `null` whenever the field is empty, for exactly this reason (see
-// OwnerSettingsScreen.tsx's submitForm).
-const legalEntityInput = z.object({
-  legalForm: z.enum(["PF", "PFA", "II", "IF", "SRL", "SA"]),
-  name: z.string().trim().min(1),
-  cuiCnp: z.string().trim().nullable().optional(),
-  vatPayer: z.boolean().optional(),
-  invoiceSeries: z.string().trim().nullable().optional(),
-});
-
-function legalEntityTypeFor(legalForm: z.infer<typeof legalEntityInput>["legalForm"]) {
-  if (legalForm === "PF") return "UNREGISTERED_INDIVIDUAL" as const;
-  if (legalForm === "PFA" || legalForm === "II" || legalForm === "IF") return "REGISTERED_INDIVIDUAL" as const;
-  return "REGISTERED_COMPANY" as const;
-}
-
-// Explicit field-by-field mapping, not `...input` — the wire/zod shape (`name`, `legalForm`) doesn't
-// match the table's own column names (`legalName`, derived `type`, no `legalForm` column at all).
-// Spreading a *variable* into an object literal skips TypeScript's excess-property check, so a
-// mismatch like this silently inserted nulls instead of failing to compile (caught by hand, testing
-// against the real dev DB — Drizzle happily ignores unknown keys in `.values()`/`.set()`).
-function toLegalEntityRow(input: z.infer<typeof legalEntityInput>) {
-  return {
-    type: legalEntityTypeFor(input.legalForm),
-    legalName: input.name,
-    cuiCnp: input.cuiCnp,
-    vatPayer: input.vatPayer,
-    invoiceSeries: input.invoiceSeries,
-  };
-}
-
-function toLegalEntityPatch(input: Partial<z.infer<typeof legalEntityInput>>) {
-  return {
-    type: input.legalForm ? legalEntityTypeFor(input.legalForm) : undefined,
-    legalName: input.name,
-    cuiCnp: input.cuiCnp,
-    vatPayer: input.vatPayer,
-    invoiceSeries: input.invoiceSeries,
-  };
-}
+// legal entity isn't scoped to any property/unit, so a collaborator's scope can't apply to it.
+// `legalEntityInputSchema`/`toLegalEntityRow`/`toLegalEntityPatch` are shared with services/tenancies'
+// user-scoped "my legal entities" (Section 4.4, 2026-07-27 consolidation) — same row shape, same
+// PF/PFA/II/IF/SRL/SA mapping, only `accountId` vs `userId` differs. ----
 
 export async function listLegalEntities(db: Db, access: AccountAccess | null, accountId: string) {
   requireOwner(access);
@@ -59,7 +25,7 @@ export async function listLegalEntities(db: Db, access: AccountAccess | null, ac
 
 export async function createLegalEntity(db: Db, access: AccountAccess | null, accountId: string, body: unknown) {
   requireOwner(access);
-  const input = legalEntityInput.parse(body);
+  const input = legalEntityInputSchema.parse(body);
   const [created] = await db
     .insert(legalEntities)
     .values({ accountId, ...toLegalEntityRow(input) })
@@ -75,7 +41,7 @@ export async function updateLegalEntity(
   body: unknown,
 ) {
   requireOwner(access);
-  const input = legalEntityInput.partial().parse(body);
+  const input = legalEntityInputSchema.partial().parse(body);
   const [updated] = await db
     .update(legalEntities)
     .set(toLegalEntityPatch(input))

@@ -2,7 +2,7 @@ import { create } from "zustand";
 
 import { legalEntitiesApi, propertiesApi, unitsApi } from "../api/properties";
 import type { ApiLegalEntity, ApiProperty, ApiUnit } from "../api/properties";
-import { tenanciesApi } from "../api/tenancies";
+import { legalEntitiesMineApi, tenanciesApi } from "../api/tenancies";
 import type { ApiClaimTenancyInput, ApiMyTenancy, ApiTenancy } from "../api/tenancies";
 import { useAccountStore } from "./accountStore";
 
@@ -105,14 +105,14 @@ export type Unit = {
 export type RentCurrency = "EUR" | "RON";
 export type TenancyStatus = "PENDING_TENANT" | "ACTIVE";
 export type ContractType = "REGISTERED_ANAF" | "C2B_WITHHOLDING" | "UNREGISTERED_C2C";
-export type TenantType = "INDIVIDUAL" | "COMPANY";
 
 // Section 4.4 — a tenancy created on a unit, backed by services/tenancies. Owner creates it
-// (`status="PENDING_TENANT"`, `contractType`/`tenantType` both null — unknowable until a tenant
-// claims the code); the tenant claiming it (phase 2, this session) fills in `tenantType` (+ company
-// fields), the server derives `contractType`, flips `status` to `"ACTIVE"`, and clears
-// `associationCode`. Nothing client-only left on this type anymore — `status` replaces the old
-// mocked `associated` boolean now that the real claim flow exists.
+// (`status="PENDING_TENANT"`, `contractType`/`tenantLegalEntity` both null — unknowable until a
+// tenant claims the code); the tenant claiming it picks one of their own `legalEntities` (Section
+// 4.4 phase 2, reworked 2026-07-27 to reuse the same identity model as the owner side instead of a
+// flat tenantType/tenantCompanyName/tenantCompanyCui/tenantIndividualName shape), the server derives
+// `contractType`, flips `status` to `"ACTIVE"`. Nothing client-only left on this type — `status`
+// replaces the old mocked `associated` boolean now that the real claim flow exists.
 export type Tenancy = {
   id: string;
   unitId: string;
@@ -122,14 +122,10 @@ export type Tenancy = {
   associationCode: string;
   status: TenancyStatus;
   contractType: ContractType | null;
-  tenantType: TenantType | null;
-  tenantCompanyName?: string;
-  tenantCompanyCui?: string;
-  // The tenant's own declared name for *this* tenancy — entered explicitly at claim time (not
-  // borrowed from `users.name`, same reasoning as `LegalEntity.name` not borrowing from the
-  // account's own signup name either). Undefined until claimed, or once tenantType isn't INDIVIDUAL
-  // (COMPANY already has `tenantCompanyName` above).
-  tenantIndividualName?: string;
+  // The tenant's own declared identity for *this* tenancy — one of their own `LegalEntity` records
+  // (not borrowed from `users.name`, same reasoning as an owner's own `LegalEntity.name` not
+  // borrowing it either: each relationship declares its own identity explicitly). Null until claimed.
+  tenantLegalEntity: { id: string; name: string; type: LegalEntityType } | null;
   // Form C168 (rental contract registration with ANAF, Section 4.4/4.10) — mandatory to surface for
   // C2B_WITHHOLDING, optional for UNREGISTERED_C2C, not applicable to REGISTERED_ANAF. The app never
   // submits it, just tracks the owner's self-confirmation.
@@ -140,12 +136,14 @@ export type Tenancy = {
 // "Chiriile mele" (TenantTenanciesScreen) needs unit/property/legalEntity display info
 // denormalized onto each tenancy — a real tenant has no `accountId` to separately fetch
 // `units`/`properties`/`legalEntities` with (no account_membership at all, Section 3.2).
-// `legalEntity.name` is the tenant-facing "who am I renting from" identity, the counterpart to
-// `Tenancy.tenantIndividualName` above.
-export type MyTenancy = Tenancy & {
+// `legalEntity.name` is the tenant-facing "who am I renting from" identity (the owner's own entity);
+// `tenantLegalEntity` (who the tenant is renting *as*) is always set here — this list only ever
+// holds already-claimed tenancies.
+export type MyTenancy = Omit<Tenancy, "tenantLegalEntity"> & {
   unit: { id: string; label: string; type: UnitType };
   property: Property;
   legalEntity: { id: string; name: string };
+  tenantLegalEntity: { id: string; name: string; type: LegalEntityType };
 };
 
 // The UI reads/writes dates as ZZ-LL-AAAA (Romanian convention, OwnerTenanciesScreen's own
@@ -318,10 +316,9 @@ function fromApiTenancy(api: ApiTenancy): Tenancy {
     associationCode: api.associationCode ?? "",
     status: api.status as TenancyStatus,
     contractType: api.contractType,
-    tenantType: api.tenantType,
-    tenantCompanyName: api.tenantCompanyName ?? undefined,
-    tenantCompanyCui: api.tenantCompanyCui ?? undefined,
-    tenantIndividualName: api.tenantIndividualName ?? undefined,
+    tenantLegalEntity: api.tenantLegalEntity
+      ? { id: api.tenantLegalEntity.id, name: api.tenantLegalEntity.name ?? "—", type: api.tenantLegalEntity.type }
+      : null,
     anafC168Registered: api.anafC168Registered,
     anafC168RegistrationDate: api.anafC168RegistrationDate ?? undefined,
   };
@@ -341,6 +338,11 @@ function fromApiMyTenancy(api: ApiMyTenancy): MyTenancy {
       county: api.property.county,
     },
     legalEntity: { id: api.legalEntity.id, name: api.legalEntity.name ?? "—" },
+    tenantLegalEntity: {
+      id: api.tenantLegalEntity.id,
+      name: api.tenantLegalEntity.name ?? "—",
+      type: api.tenantLegalEntity.type,
+    },
   };
 }
 
@@ -394,6 +396,16 @@ type PortfolioState = {
   myTenanciesError: string | null;
   fetchMyTenancies: () => Promise<void>;
   claimTenancy: (input: ApiClaimTenancyInput) => Promise<Tenancy>;
+  // Tenant's own reusable identities (Section 4.4/5.1, 2026-07-27 consolidation) — `userId`-scoped
+  // counterpart to `legalEntities` above, own loading/error like `myTenancies` (a real tenant has no
+  // `activeAccountId` to piggyback `fetchPortfolio`'s single loading flag on).
+  myLegalEntities: LegalEntity[];
+  myLegalEntitiesLoading: boolean;
+  myLegalEntitiesError: string | null;
+  fetchMyLegalEntities: () => Promise<void>;
+  addMyLegalEntity: (input: LegalEntityInput) => Promise<LegalEntity>;
+  updateMyLegalEntity: (id: string, input: LegalEntityInput) => Promise<void>;
+  deleteMyLegalEntity: (id: string) => Promise<void>;
 };
 
 // Section 4.3/4.4 — the owner's fiscal identities (legal_entities), physical inventory
@@ -593,5 +605,40 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
     // "Se încarcă..." (if the refetch is still in flight) only ever appears after that.
     get().fetchMyTenancies();
     return fromApiTenancy(created);
+  },
+
+  myLegalEntities: [],
+  myLegalEntitiesLoading: false,
+  myLegalEntitiesError: null,
+  fetchMyLegalEntities: async () => {
+    set({ myLegalEntitiesLoading: true, myLegalEntitiesError: null });
+    try {
+      const mine = await legalEntitiesMineApi.list();
+      set({ myLegalEntities: mine.map(fromApiLegalEntity), myLegalEntitiesLoading: false });
+    } catch (error) {
+      set({
+        myLegalEntitiesLoading: false,
+        myLegalEntitiesError: error instanceof Error ? error.message : "Nu am putut încărca entitățile legale",
+      });
+    }
+  },
+  addMyLegalEntity: async (input) => {
+    const created = await legalEntitiesMineApi.create(input);
+    const legalEntity = fromApiLegalEntity(created);
+    set((state) => ({ myLegalEntities: [...state.myLegalEntities, legalEntity] }));
+    return legalEntity;
+  },
+  updateMyLegalEntity: async (id, input) => {
+    const updated = await legalEntitiesMineApi.update(id, input);
+    const legalEntity = fromApiLegalEntity(updated);
+    set((state) => ({
+      myLegalEntities: state.myLegalEntities.map((entity) => (entity.id === id ? legalEntity : entity)),
+    }));
+  },
+  deleteMyLegalEntity: async (id) => {
+    await legalEntitiesMineApi.remove(id);
+    set((state) => ({
+      myLegalEntities: state.myLegalEntities.filter((entity) => entity.id !== id),
+    }));
   },
 }));

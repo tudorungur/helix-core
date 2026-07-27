@@ -34,6 +34,15 @@ export async function handler(event: APIGatewayProxyEventV2WithJWTAuthorizer): P
         return json(201, await handlers.claimTenancy(db, userId, parseBody(event)));
       case "GET /tenancies/mine":
         return json(200, await handlers.listMyTenancies(db, userId));
+      case "GET /legal-entities/mine":
+        return json(200, await handlers.listMyLegalEntities(db, userId));
+      case "POST /legal-entities/mine":
+        return json(201, await handlers.createMyLegalEntity(db, userId, parseBody(event)));
+      case "PATCH /legal-entities/mine/{id}":
+        return json(200, await handlers.updateMyLegalEntity(db, userId, params.id!, parseBody(event)));
+      case "DELETE /legal-entities/mine/{id}":
+        await handlers.deleteMyLegalEntity(db, userId, params.id!);
+        return json(204, null);
     }
 
     const accountId = params.accountId;

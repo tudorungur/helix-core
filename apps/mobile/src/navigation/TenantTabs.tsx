@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 
 import { PlaceholderScreen } from "../screens/PlaceholderScreen";
+import { TenantSettingsScreen } from "../screens/tenant/TenantSettingsScreen";
 import { TenantTenanciesScreen } from "../screens/tenant/TenantTenanciesScreen";
 
 export type TenantTabsParamList = {
@@ -10,6 +11,7 @@ export type TenantTabsParamList = {
   MyInvoices: undefined;
   Maintenance: undefined;
   Notifications: undefined;
+  Settings: undefined;
 };
 
 // Single source of truth for this tab set's Romanian names — used as both tabBarLabel and the
@@ -20,6 +22,7 @@ export const TENANT_TAB_LABELS: Record<keyof TenantTabsParamList, string> = {
   MyInvoices: "Facturi",
   Maintenance: "Mentenanță",
   Notifications: "Notificări",
+  Settings: "Setări",
 };
 
 const TENANT_TAB_ICONS: Record<keyof TenantTabsParamList, keyof typeof Ionicons.glyphMap> = {
@@ -28,6 +31,7 @@ const TENANT_TAB_ICONS: Record<keyof TenantTabsParamList, keyof typeof Ionicons.
   MyInvoices: "receipt-outline",
   Maintenance: "construct-outline",
   Notifications: "notifications-outline",
+  Settings: "settings-outline",
 };
 
 const Tab = createBottomTabNavigator<TenantTabsParamList>();
@@ -65,6 +69,7 @@ export function TenantTabs() {
       <Tab.Screen name="Notifications" options={tabIconOptions("Notifications")}>
         {() => <PlaceholderScreen name={TENANT_TAB_LABELS.Notifications} />}
       </Tab.Screen>
+      <Tab.Screen name="Settings" component={TenantSettingsScreen} options={tabIconOptions("Settings")} />
     </Tab.Navigator>
   );
 }

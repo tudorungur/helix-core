@@ -7,9 +7,12 @@ export type ApiLegalForm = "PF" | "PFA" | "II" | "IF" | "SRL" | "SA";
 export type ApiLegalEntityType = "UNREGISTERED_INDIVIDUAL" | "REGISTERED_INDIVIDUAL" | "REGISTERED_COMPANY";
 export type ApiUnitType = "APARTMENT" | "HOUSE" | "RETAIL" | "WAREHOUSE" | "OFFICE";
 
+// `accountId` xor `userId` (2026-07-27 consolidation) — an owner's own entity (Section 4.3) has
+// `accountId` set, a tenant's own entity (Section 4.4) has `userId` set, never both.
 export type ApiLegalEntity = {
   id: string;
-  accountId: string;
+  accountId: string | null;
+  userId: string | null;
   type: ApiLegalEntityType;
   legalName: string | null;
   cuiCnp: string | null;

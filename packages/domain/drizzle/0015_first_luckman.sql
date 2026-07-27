@@ -1,0 +1,2 @@
+ALTER TABLE "legal_entities" DROP CONSTRAINT "legal_entities_cui_cnp_unique";--> statement-breakpoint
+CREATE UNIQUE INDEX "legal_entities_account_cui_cnp_unique" ON "legal_entities" USING btree ("cui_cnp") WHERE "legal_entities"."account_id" is not null;

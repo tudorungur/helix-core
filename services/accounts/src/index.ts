@@ -2,8 +2,8 @@
 // of" (Section 3.2 step 4, the piece the mobile app needs to resolve an `accountId` before calling
 // any of services/properties' account-scoped routes) plus Section 4.1's onboarding step (create the
 // `users` row + Proprietar's `accounts`/`account_membership`, previously just a TODO in the mobile
-// SignUpScreen).
-import { z } from "zod";
+// SignUpScreen). Neither onboarding route takes a body anymore (2026-07-27 — SignUp no longer asks
+// for a name; identity is collected per-legal_entity instead, Section 4.3/4.4).
 import { getDb } from "./db.js";
 import { createAccount, listMyAccounts, upsertSelf } from "./handlers.js";
 import type { APIGatewayProxyEventV2WithJWTAuthorizer, APIGatewayProxyResultV2 } from "aws-lambda";
@@ -14,12 +14,6 @@ function json(status: number, body: unknown): APIGatewayProxyResultV2 {
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body ?? {}),
   };
-}
-
-function parseBody(event: APIGatewayProxyEventV2WithJWTAuthorizer): unknown {
-  if (!event.body) return {};
-  const raw = event.isBase64Encoded ? Buffer.from(event.body, "base64").toString("utf8") : event.body;
-  return JSON.parse(raw);
 }
 
 export async function handler(event: APIGatewayProxyEventV2WithJWTAuthorizer): Promise<APIGatewayProxyResultV2> {
@@ -36,14 +30,13 @@ export async function handler(event: APIGatewayProxyEventV2WithJWTAuthorizer): P
       case "GET /accounts":
         return json(200, await listMyAccounts(db, sub));
       case "POST /accounts":
-        return json(201, await createAccount(db, sub, email, parseBody(event)));
+        return json(201, await createAccount(db, sub, email));
       case "POST /users/me":
-        return json(200, await upsertSelf(db, sub, email, parseBody(event)));
+        return json(200, await upsertSelf(db, sub, email));
       default:
         return json(404, { message: `No route for ${event.routeKey}` });
     }
   } catch (error) {
-    if (error instanceof z.ZodError) return json(400, { message: "Invalid request body", issues: error.issues });
     console.error(error);
     return json(500, { message: "Internal error" });
   }

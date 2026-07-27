@@ -205,10 +205,9 @@ export function OwnerTenanciesScreen() {
     const c168Relevant =
       tenancy.contractType === "C2B_WITHHOLDING" || tenancy.contractType === "UNREGISTERED_C2C";
     const c168Resolved = tenancy.anafC168Registered;
-    // Which of the two identity fields actually holds the tenant's name depends on tenantType —
-    // null until claimed (both stay unset while PENDING_TENANT).
-    const tenantIdentity =
-      tenancy.tenantType === "COMPANY" ? tenancy.tenantCompanyName : tenancy.tenantIndividualName;
+    // The tenant's own declared identity — one of their own legal entities, picked at claim time.
+    // Null until claimed (stays unset while PENDING_TENANT).
+    const tenantIdentity = tenancy.tenantLegalEntity?.name;
 
     return (
       <TouchableOpacity
