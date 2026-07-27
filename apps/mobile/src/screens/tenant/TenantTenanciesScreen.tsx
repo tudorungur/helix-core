@@ -102,6 +102,10 @@ export function TenantTenanciesScreen() {
     // changes a utility in Portofoliu (same shared portfolioStore, no separate sync needed).
     const unit = units.find((u) => u.id === tenancy.unit.id);
     const enabledUtilities = unit?.utilities.filter((utility) => utility.enabled) ?? [];
+    // Same identity logic as OwnerTenanciesScreen's own "Chiriaș:" line — whichever field is
+    // actually populated depends on tenantType.
+    const tenantIdentity =
+      tenancy.tenantType === "COMPANY" ? tenancy.tenantCompanyName : tenancy.tenantIndividualName;
 
     return (
       <View
@@ -119,6 +123,9 @@ export function TenantTenanciesScreen() {
         {/* Who's renting to whom — the owner's counterpart to OwnerTenanciesScreen's "Chiriaș:"
             line, from the legal entity denormalized onto GET /tenancies/mine. */}
         <Text style={localStyles.entityCaption}>Proprietar: {tenancy.legalEntity.name}</Text>
+        {tenantIdentity ? (
+          <Text style={localStyles.entityCaption}>Chiriaș: {tenantIdentity}</Text>
+        ) : null}
         <Text style={localStyles.entityCaption}>Data început: {tenancy.startDate}</Text>
         <Text style={localStyles.entityCaption}>
           Cost chirie (lunar): {tenancy.rentAmount} {tenancy.rentCurrency}

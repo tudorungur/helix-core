@@ -250,16 +250,27 @@ export async function claimTenancy(db: Db, userId: string, body: unknown) {
 // whom" need as `listTenancies`' new `tenantIndividualName`, just the other direction.
 export async function listMyTenancies(db: Db, userId: string) {
   const rows = await db
-    .select({ tenancy: tenancies, unit: units, property: properties, legalEntity: legalEntities })
+    .select({
+      tenancy: tenancies,
+      unit: units,
+      property: properties,
+      legalEntity: legalEntities,
+      // The caller's own name — same field name as `listTenancies`' owner-facing
+      // `tenantIndividualName`, populated here trivially since the query is already scoped to this
+      // exact user via `tenancyMemberships.userId = userId` below.
+      tenantIndividualName: users.name,
+    })
     .from(tenancyMemberships)
     .innerJoin(tenancies, eq(tenancies.id, tenancyMemberships.tenancyId))
     .innerJoin(units, eq(units.id, tenancies.unitId))
     .innerJoin(properties, eq(properties.id, units.propertyId))
     .innerJoin(legalEntities, eq(legalEntities.id, units.legalEntityId))
+    .innerJoin(users, eq(users.id, tenancyMemberships.userId))
     .where(eq(tenancyMemberships.userId, userId));
 
   return rows.map((row) => ({
     ...row.tenancy,
+    tenantIndividualName: row.tenantIndividualName,
     unit: { id: row.unit.id, label: row.unit.label, type: row.unit.type },
     property: {
       id: row.property.id,
