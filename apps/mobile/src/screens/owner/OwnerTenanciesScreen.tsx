@@ -514,7 +514,9 @@ const localStyles = StyleSheet.create({
   tenancyListRow: { padding: 12, gap: 4 },
   tenancyListRowDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#ccc" },
   tenancyListRowEditing: { backgroundColor: "#eaf1fd" },
-  codeRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 6 },
+  // No marginTop — same reasoning as utilitiesBlock below: `tenancyListRow`'s own `gap: 4` already
+  // spaces this from its neighbor, an extra margin here double-spaced it.
+  codeRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   tenancyCode: { fontSize: 15, fontWeight: "700" },
   codeCaption: { fontSize: 13, color: "#8e8e93", marginTop: 2 },
   // No marginTop of its own — `tenancyListRow`'s own `gap: 4` already spaces every direct child
