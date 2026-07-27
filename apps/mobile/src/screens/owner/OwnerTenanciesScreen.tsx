@@ -282,10 +282,11 @@ export function OwnerTenanciesScreen() {
             </Text>
           ) : (
             <View style={localStyles.c168Row}>
+              {/* Mandatory for every individual-landlord tenancy, not just C2B_WITHHOLDING —
+                  registration at ANAF within 30 days applies to all rental contracts by
+                  individuals, C2C included (no exception for informal/unregistered tenancies). */}
               <Text style={localStyles.reminderCaption}>
-                {tenancy.contractType === "C2B_WITHHOLDING"
-                  ? "⚠️ Contractul trebuie înregistrat la ANAF (Formular 168), în 30 de zile de la semnare."
-                  : "⚠️ Recomandat: înregistrează contractul la ANAF (Formular 168)."}
+                ⚠️ Contractul trebuie înregistrat la ANAF (Formular 168), în 30 de zile de la semnare.
               </Text>
               <TouchableOpacity
                 onPress={(event) => {
@@ -298,6 +299,18 @@ export function OwnerTenanciesScreen() {
               </TouchableOpacity>
             </View>
           )
+        ) : null}
+        {/* Purely informational — no self-confirm here, unlike C168/CNP above. Declarația Unică
+            (D212) is a yearly obligation per *person*, covering all their rental income together,
+            not one per tenancy — there's nothing meaningful to "mark as done" at this granularity,
+            and the app doesn't enforce compliance either way (the user's own responsibility). */}
+        {c168Relevant ? (
+          <Text style={localStyles.reminderCaption}>
+            ⚠️{" "}
+            {tenancy.contractType === "C2B_WITHHOLDING"
+              ? "Impozitul e reținut de chiriaș, dar dacă veniturile tale cumulate din chirii trec de 6 salarii minime brute/an, trebuie să depui Declarația Unică pentru CASS, până la 25 mai anul următor."
+              : "Trebuie să depui Declarația Unică (calculezi și plătești singur impozitul de 10% și, dacă e cazul, CASS), până la 25 mai anul următor."}
+          </Text>
         ) : null}
       </TouchableOpacity>
     );

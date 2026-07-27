@@ -13,7 +13,7 @@ Covers four types of contractual relationship on the same platform:
 | B2B  | Landlord as a legal entity/sole trader (SRL or PFA) ↔ tenant as a company | Automatic, ANAF e-Factura (SPV OAuth) |
 | B2C  | Landlord as a legal entity/sole trader (SRL or PFA) ↔ tenant as an individual | Automatic, ANAF e-Factura (SPV OAuth) |
 | C2B  | Landlord as an individual ↔ tenant as a company             | Manual — "expense statement" showing the 8% withholding tax the tenant-company must retain (Section 4.10); ANAF contract registration (Form C168) is mandatory, not optional |
-| C2C  | Individual ↔ individual, contract not registered with ANAF (registration optional) | Manual — "expense statement" + manual payment marking by the landlord |
+| C2C  | Individual ↔ individual, informal | Manual — "expense statement" + manual payment marking by the landlord; ANAF contract registration (Form C168) is mandatory here too, same as C2B (corrected 2026-07-27 — earlier drafts wrongly called this optional) |
 
 These four labels are informal shorthand, not stored as their own value anywhere: whether a tenancy is
 "B2B" vs "B2C" (or "C2B" vs "C2C") is entirely a function of whether the tenant is a company or an
@@ -31,7 +31,7 @@ per-unit, by whichever legal entity that unit belongs to, not by the owner's `ac
 | **B2B** | e-Factura has been mandatory since July 2024, with real penalties for missing it: 1,000–10,000 lei for the issuer (by company size) for not transmitting within 5 calendar days, and — on the recipient side — a fine equal to the invoice's full VAT amount for booking an invoice that wasn't properly issued through RO e-Factura. None of that touches the actual bottleneck: the invoiced amount still has to be derived from metered consumption + rent, usually assembled in a spreadsheet before being re-keyed into separate invoicing software to generate the UBL/CII XML by hand. | Confirmed meter readings (Section 4.5) flow straight into the invoice computation (Section 4.6) and automatic e-Factura submission (Section 4.8) — one pipeline from "tenant photographs the meter" to "ANAF has a compliant invoice inside the 5-day window," with no manual re-entry step and no XML tooling to learn or penalty deadline to track by hand. |
 | **B2C** | Same mandatory e-Factura + penalty exposure as B2B, compounded by a counterparty (an individual tenant) who's less likely to understand an e-Factura/SPV notification and more likely to dispute a charge informally (a text message) than through any documented channel — leaving the landlord as the sole point of contact for every question. | Same automated e-Factura pipeline, plus tenant self-service: photo-based reading submission, in-app invoice view, online payment (Netopia) — the landlord stops being the manual relay between "what's owed" and "how do I pay it." |
 | **C2B** | A regime most owners and companies don't know applies to them (effective since 2024): mandatory Form C168 registration within 30 days of signing, plus an 8% withholding tax the tenant-company must calculate and file (D100 monthly, D205 annual). The calculation itself is a documented source of error: the 10% rate applies to 80% of gross rent (after a flat 20% deduction), not to the gross amount directly — applying 10% straight to the gross rent overcharges the withholding by 25% of the correct tax (e.g. 300 lei withheld instead of the correct 240 lei on a 3,000 lei rent), usually only caught when the owner questions why the net payment doesn't match expectations. | The withholding line (gross, tax withheld, net due) is computed correctly and automatically on every statement using the two-step 80%/10% calculation (Section 4.10), and the C168 registration requirement is tracked/reminded (Section 3.1, Section 4.4) instead of silently skipped — removes both the compliance-miss risk and the "why is this amount different from the contract" dispute. |
-| **C2C** | No fiscal obligation, but also no tooling — and this is exactly the segment where documented rental disputes concentrate: proving what was actually paid when rent changes hands informally (cash, no receipt), and — a well-documented pain point independent of contract type — justifying a withheld security deposit at move-out, which legally requires concrete proof (contract, payment records, handover protocol, photos, message history), not just a claim from either side. | No fiscal automation to offer here, so the value is entirely operational: computed rent/utility amounts remove disputed math, photo-verified readings remove disputed consumption, and payment-status tracking (Section 4.7) builds exactly the kind of dated, documented history that a dispute — including a deposit dispute — needs to be resolved on evidence instead of on who argues harder. If the relationship is later formalized (Section 4.4), the full history transfers with zero re-entry. |
+| **C2C** | No withholding/e-Factura mechanism, but real fiscal obligations still apply and are widely missed: Form C168 registration (mandatory, same 30-day deadline as C2B — not an exception just because the tenant is also an individual) and, since nothing is withheld at source, the owner must self-declare and pay both the 10% income tax and CASS (if applicable) themselves via Declarația Unică (due 25 May the following year). On top of that, this is exactly the segment where documented rental disputes concentrate: proving what was actually paid when rent changes hands informally (cash, no receipt), and — a well-documented pain point independent of contract type — justifying a withheld security deposit at move-out, which legally requires concrete proof (contract, payment records, handover protocol, photos, message history), not just a claim from either side. | No automated withholding/e-Factura pipeline to offer here (unlike C2B/B2B/B2C), but the app surfaces both obligations as reminders (C168, Declarația Unică — Section 4.4) instead of leaving them undiscovered, and the operational value is the same as elsewhere: computed rent/utility amounts remove disputed math, photo-verified readings remove disputed consumption, and payment-status tracking (Section 4.7) builds exactly the kind of dated, documented history that a dispute — including a deposit dispute — needs to be resolved on evidence instead of on who argues harder. If the relationship is later formalized (Section 4.4), the full history transfers with zero re-entry. |
 
 Across all four types, the common thread is a single computed source of truth for rent + utilities instead of
 manual math re-derived by each party; **B2B/B2C/C2B** additionally get compliance automation (e-Factura,
@@ -152,10 +152,14 @@ users (Cognito sub) ──┬── account_memberships ──> accounts ──>
   EUR-indexed even when invoiced in RON; kept flexible for contracts already denominated in RON),
   `anaf_c168_registered bool` (default `false`), `anaf_c168_registration_date NULL` — tracks whether the
   civil rental contract has been registered with ANAF (Form C168), independent of `contract_type`:
-  **mandatory** for `C2B_WITHHOLDING` (owner is an individual, tenant is a company), **optional** for
-  `UNREGISTERED_C2C`. Not applicable to `REGISTERED_ANAF` (B2B/B2C), where the owner already operates under
-  a different fiscal regime (SRL/PFA) and e-Factura, not C168, is the relevant mechanism. The app only
-  tracks that registration happened (a confirmation checkbox + date) — it does not submit Form C168 itself.
+  **mandatory for both `C2B_WITHHOLDING` and `UNREGISTERED_C2C`** — registration within 30 days of
+  signing is a legal requirement for every rental contract where the owner is an individual, with no
+  carve-out for informal/unregistered (C2C) tenancies (corrected 2026-07-27; earlier drafts of this spec
+  wrongly treated C2C as optional). Not applicable to `REGISTERED_ANAF` (B2B/B2C), where the owner already
+  operates under a different fiscal regime (SRL/PFA) and e-Factura, not C168, is the relevant mechanism.
+  The app only tracks that registration happened (a confirmation checkbox + date) — it does not submit
+  Form C168 itself, and does not block/enforce anything if the owner never confirms it (their own legal
+  responsibility, not something the app gatekeeps).
   Also `tenant_type [INDIVIDUAL|COMPANY]` — the fact that actually drives the informal B2B/C2B (`COMPANY`)
   vs B2C/C2C (`INDIVIDUAL`) label (Section 1), not `legal_entities.type`. Only when `tenant_type = COMPANY`:
   `tenant_company_name`, `tenant_company_cui` — the tenant-company's fiscal identity, needed to address
@@ -422,13 +426,29 @@ data-minimization rationale:**
   this B2B/B2C/C2B/C2C?" as a literal question (Section 1's note: those labels aren't stored as their own
   value anywhere).
 
-`tenancy_membership` is created once all of the above resolves; `association_code` is cleared on the
-`tenancy` once claimed.
+`tenancy_membership` is created once all of the above resolves. `association_code` is **kept**, not
+cleared, once claimed (changed 2026-07-27 — the owner still needs to see which code was used; re-claiming
+an already-`ACTIVE` tenancy is already blocked by `status`, so clearing it was never load-bearing for that
+guard).
 
-If `contract_type = C2B_WITHHOLDING`, the owner is shown a reminder that registering the contract with ANAF
-(Form C168, within 30 days of signing) is a legal requirement, not optional — the owner self-confirms once
-done (`anaf_c168_registered = true`, `anaf_c168_registration_date`). For `UNREGISTERED_C2C`, the same
-reminder is shown but framed as optional. The app never submits Form C168 itself (see Section 3.1).
+For both `C2B_WITHHOLDING` and `UNREGISTERED_C2C`, the owner is shown a reminder that registering the
+contract with ANAF (Form C168, within 30 days of signing) is a legal requirement — mandatory for both, no
+"optional" framing for C2C (Section 3.1's note above). The owner self-confirms once done
+(`anaf_c168_registered = true`, `anaf_c168_registration_date`); the app never submits Form C168 itself and
+never blocks anything if the owner doesn't confirm — purely informational, the owner's own legal
+responsibility (Section 3.1).
+
+**Also for both `C2B_WITHHOLDING` and `UNREGISTERED_C2C`** (added 2026-07-27): a reminder about
+**Declarația Unică (D212)**, the individual owner's own annual income declaration — due 25 May of the
+following year, and covering *all* of that person's rental income together, not filed per-tenancy. The two
+cases differ in what's actually owed: for `C2B_WITHHOLDING`, the tenant-company already withholds and pays
+the 10% income tax at source, so the owner only still needs Declarația Unică for CASS (health insurance
+contribution), and only if their cumulative relevant income crosses the CASS threshold (6× the gross
+minimum wage/year); for `UNREGISTERED_C2C`, nothing is withheld, so the owner must calculate, declare, and
+pay both the 10% income tax and CASS (if applicable) themselves. This reminder is **purely informational,
+with no self-confirm/tracking field** — unlike C168, D212 is a yearly per-person obligation, not a
+per-tenancy one, so there's no meaningful "mark as done" at the tenancy level, and (same as C168) the app
+never enforces compliance either way.
 
 ### 4.5 Monthly meter reading (mobile wizard)
 1. EventBridge Scheduler triggers a reminder (push + email) on a configurable day of the month.
