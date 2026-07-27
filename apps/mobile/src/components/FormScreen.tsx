@@ -1,5 +1,5 @@
 import type { PropsWithChildren, ReactNode } from "react";
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text } from "react-native";
 import type { StyleProp, ViewStyle } from "react-native";
 
 type Props = PropsWithChildren<{
@@ -41,7 +41,15 @@ export function FormScreen({
       style={styles.flex}
       behavior={useNativeInsets ? undefined : Platform.OS === "ios" ? "padding" : "height"}
     >
-      {header ? <View style={styles.header}>{header}</View> : null}
+      {header ? (
+        <ScrollView
+          style={styles.headerScroll}
+          contentContainerStyle={styles.header}
+          keyboardShouldPersistTaps="handled"
+        >
+          {header}
+        </ScrollView>
+      ) : null}
       <ScrollView
         contentContainerStyle={[styles.container, contentContainerStyle]}
         keyboardShouldPersistTaps="handled"
@@ -56,6 +64,13 @@ export function FormScreen({
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  // Caps how much of the screen the pinned header can take before it scrolls internally — without
+  // this, a header whose content grows with data (Închirieri's unit picker: one row per available
+  // unit, across every property) had no ceiling at all, so picking a unit far down the list pushed
+  // its own contract form fully off-screen (nothing below the header could ever scroll it back into
+  // view, since the header itself never scrolled). Harmless no-op for the common case where header
+  // content easily fits under 50% of the screen.
+  headerScroll: { maxHeight: "50%" },
   // gap spaces out multi-element headers (trigger + hint text, or trigger/form + the divider each
   // screen appends) — without it they rendered glued together, unlike the scrollable content below
   // which gets its spacing from each screen's own `formStyles.container` gap.
