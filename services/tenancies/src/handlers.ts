@@ -1,6 +1,6 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
-import { legalEntities, properties, tenancies, tenancyMemberships, units, users } from "@helix-core/domain";
+import { legalEntities, properties, tenancies, tenancyMemberships, units } from "@helix-core/domain";
 import type { Db } from "@helix-core/domain";
 import { HttpError, canWriteUnit } from "./auth.js";
 import type { AccountAccess } from "./auth.js";
@@ -48,28 +48,21 @@ function toTenancyPatch(input: Partial<z.infer<typeof tenancyInput>>) {
 }
 
 // Flat, account-wide — same shape as listUnits/listProperties (services/properties' precedent).
-// Left-joins the PRIMARY_TENANT's own `users.name` — the owner has no way to know who they're
-// actually renting to for an INDIVIDUAL tenant otherwise (`tenant_company_name` already covers the
-// COMPANY case, but individuals have no name stored anywhere on `tenancies` itself, Section 3.1's
-// data-minimization note only ever applied to CNP, not name). Null until claimed (no membership yet).
+// `tenant_individual_name` is a plain column on `tenancies` now (entered explicitly at claim time,
+// see `claimTenancy` below) — no join needed to surface it, unlike the earlier version of this
+// function which borrowed it from `users.name` via a `tenancy_memberships` join.
 export async function listTenancies(db: Db, access: AccountAccess | null, accountId: string) {
   if (!access) throw new HttpError(403, "No membership on this account");
   const rows = await db
-    .select({ tenancy: tenancies, unit: units, tenantIndividualName: users.name })
+    .select({ tenancy: tenancies, unit: units })
     .from(tenancies)
     .innerJoin(units, eq(units.id, tenancies.unitId))
     .innerJoin(properties, eq(properties.id, units.propertyId))
-    .leftJoin(
-      tenancyMemberships,
-      and(eq(tenancyMemberships.tenancyId, tenancies.id), eq(tenancyMemberships.role, "PRIMARY_TENANT")),
-    )
-    .leftJoin(users, eq(users.id, tenancyMemberships.userId))
     .where(eq(properties.accountId, accountId));
-  const withTenantName = rows.map((row) => ({ ...row.tenancy, tenantIndividualName: row.tenantIndividualName }));
-  if (access.role === "OWNER") return withTenantName;
+  if (access.role === "OWNER") return rows.map((row) => row.tenancy);
   return rows
     .filter((row) => access.propertyIds.has(row.unit.propertyId) || access.unitIds.has(row.unit.id))
-    .map((row) => ({ ...row.tenancy, tenantIndividualName: row.tenantIndividualName }));
+    .map((row) => row.tenancy);
 }
 
 async function getUnitOrThrow(db: Db, accountId: string, unitId: string) {
@@ -186,12 +179,14 @@ function deriveContractType(
 }
 
 // Tenant's own CNP is deliberately never collected (Section 3.1 — not legally required on an
-// invoice to an individual, and `tenancies` has no column for it at all). Only company details are
-// asked, and only when tenant_type = COMPANY.
+// invoice to an individual, and `tenancies` has no column for it at all). `tenantIndividualName` is
+// required instead — the tenant's declared name for *this* tenancy (added 2026-07-27), not borrowed
+// from `users.name` (same reasoning as `legal_entities.legal_name` not borrowing it either).
 const claimInput = z.discriminatedUnion("tenantType", [
   z.object({
     associationCode: z.string().trim().min(1),
     tenantType: z.literal("INDIVIDUAL"),
+    tenantIndividualName: z.string().trim().min(1),
   }),
   z.object({
     associationCode: z.string().trim().min(1),
@@ -226,6 +221,7 @@ export async function claimTenancy(db: Db, userId: string, body: unknown) {
       tenantType: input.tenantType,
       tenantCompanyName: input.tenantType === "COMPANY" ? input.tenantCompanyName : null,
       tenantCompanyCui: input.tenantType === "COMPANY" ? input.tenantCompanyCui : null,
+      tenantIndividualName: input.tenantType === "INDIVIDUAL" ? input.tenantIndividualName : null,
       contractType,
       status: "ACTIVE",
     })
@@ -246,31 +242,20 @@ export async function claimTenancy(db: Db, userId: string, body: unknown) {
 // tenancy_membership instead, and denormalizes unit/property/legalEntity fields the mobile client
 // needs to display "Chiriile mele" (a real tenant can't separately call
 // GET /accounts/{accountId}/units or .../legal-entities, they have no accountId at all). The
-// legal entity's name is who the tenant is actually renting from — same "who's renting to/from
-// whom" need as `listTenancies`' new `tenantIndividualName`, just the other direction.
+// legal entity's name is who the tenant is actually renting from; `tenantIndividualName` (their own
+// declared name for this tenancy) is already a plain column on `row.tenancy`, no join needed.
 export async function listMyTenancies(db: Db, userId: string) {
   const rows = await db
-    .select({
-      tenancy: tenancies,
-      unit: units,
-      property: properties,
-      legalEntity: legalEntities,
-      // The caller's own name — same field name as `listTenancies`' owner-facing
-      // `tenantIndividualName`, populated here trivially since the query is already scoped to this
-      // exact user via `tenancyMemberships.userId = userId` below.
-      tenantIndividualName: users.name,
-    })
+    .select({ tenancy: tenancies, unit: units, property: properties, legalEntity: legalEntities })
     .from(tenancyMemberships)
     .innerJoin(tenancies, eq(tenancies.id, tenancyMemberships.tenancyId))
     .innerJoin(units, eq(units.id, tenancies.unitId))
     .innerJoin(properties, eq(properties.id, units.propertyId))
     .innerJoin(legalEntities, eq(legalEntities.id, units.legalEntityId))
-    .innerJoin(users, eq(users.id, tenancyMemberships.userId))
     .where(eq(tenancyMemberships.userId, userId));
 
   return rows.map((row) => ({
     ...row.tenancy,
-    tenantIndividualName: row.tenantIndividualName,
     unit: { id: row.unit.id, label: row.unit.label, type: row.unit.type },
     property: {
       id: row.property.id,

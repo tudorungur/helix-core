@@ -165,8 +165,12 @@ users (Cognito sub) ──┬── account_memberships ──> accounts ──>
   `tenant_company_name`, `tenant_company_cui` — the tenant-company's fiscal identity, needed to address
   the e-Factura (B2B) or to identify the paying company on the withholding statement (C2B); the individual
   linked via `tenancy_memberships` may just be an employee using the app on the company's behalf, not the
-  fiscal entity itself. `association_code` (nullable, short alphanumeric) — generated when the owner creates
-  the tenancy, cleared once a tenant links to it via self-registration (Section 4.4); replaces the older
+  fiscal entity itself. Only when `tenant_type = INDIVIDUAL`: `tenant_individual_name` (added
+  2026-07-27) — the tenant's own declared name for *this* tenancy, entered explicitly at claim time
+  (§4.4), enforced required (mirrors `legal_entities.legal_name` deliberately not being borrowed from
+  `users.name` either — each relationship declares its own identity, not inherited tacitly from the
+  account). `association_code` (nullable, short alphanumeric) — generated when the owner creates
+  the tenancy, kept (not cleared) once a tenant links to it via self-registration (Section 4.4); replaces the older
   email/SMS-invite-only flow.
 
   *Implementation status*: `contract_type` and `tenant_type` are **nullable** (added 2026-07-21,
@@ -407,12 +411,14 @@ data-minimization rationale:**
 - **Tenant side**: the same legal-form picker §4.1 used to ask — no signup default to fall back on anymore
   (§4.1), so it's picked fresh every time, confirmable/changeable per tenancy (a tenant linking a *second*
   tenancy might be acting on a *different* company's behalf than their first). Persoană Fizică →
-  `tenant_type = INDIVIDUAL`, no other field (`tenancies` has no per-tenant CNP anywhere in the schema — see
-  Section 3.1 for why). Any other choice → `tenant_type = COMPANY` + `tenant_company_name`/
-  `tenant_company_cui` (checksum-validated CUI). Those two fields live on the `tenancy`, not the user, which
-  is exactly why a second tenancy re-enters them. Unlike `legal_entities.cui_cnp`, `tenancies.tenant_company_cui`
-  is **not** unique — the same company can legitimately rent multiple units, or the tenancy might be entered
-  by an employee acting on the company's behalf without owning the CUI.
+  `tenant_type = INDIVIDUAL` + a required `tenant_individual_name` (Nume și prenume, enforced non-empty at
+  claim time — added 2026-07-27) — still no CNP (`tenancies` has no per-tenant CNP anywhere in the schema,
+  Section 3.1). Any other choice → `tenant_type = COMPANY` + `tenant_company_name`/
+  `tenant_company_cui` (checksum-validated CUI). All three of these fields live on the `tenancy`, not the
+  user, which is exactly why a second tenancy re-enters them (not borrowed from `users.name`, same
+  reasoning as `legal_entities.legal_name` not borrowing it either). Unlike `legal_entities.cui_cnp`,
+  `tenancies.tenant_company_cui` is **not** unique — the same company can legitimately rent multiple units,
+  or the tenancy might be entered by an employee acting on the company's behalf without owning the CUI.
 - **Owner side**: for a business `legal_entity` (PFA/II/IF/SRL/SA), `cui_cnp`/`legal_name`/`vat_payer`/
   `invoice_series` were already collected when that legal entity was created (§4.3, at unit-add time) —
   nothing to ask here. For a Persoană Fizică `legal_entity`, this is the first genuine trigger to collect its

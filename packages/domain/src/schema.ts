@@ -218,8 +218,15 @@ export const tenancies = pgTable("tenancies", {
   // fiscal entity itself.
   tenantCompanyName: varchar("tenant_company_name", { length: 200 }),
   tenantCompanyCui: varchar("tenant_company_cui", { length: 20 }),
+  // Only set when tenant_type = INDIVIDUAL — the tenant's own declared name for *this* tenancy,
+  // entered explicitly at claim time (added 2026-07-27). Deliberately not borrowed from
+  // `users.name` (set once at sign-up, unrelated to any specific tenancy) — same reasoning as
+  // `legal_entities.legal_name` not borrowing from the owner's own `users.name` either: each
+  // relationship declares its own identity explicitly, not inherited tacitly from the account.
+  tenantIndividualName: varchar("tenant_individual_name", { length: 200 }),
   // Generated when the owner creates the tenancy, replacing an email/SMS invite (Section 4.4) — the
-  // tenant self-registers and enters this to link. Cleared once claimed.
+  // tenant self-registers and enters this to link. Kept, not cleared, once claimed (Section 4.4's
+  // implementation-status note) — the owner still needs to see which code was used.
   associationCode: varchar("association_code", { length: 12 }),
 });
 

@@ -49,6 +49,7 @@ export function TenantTenanciesScreen() {
   const [formOpen, setFormOpen] = useState(false);
   const [associationCode, setAssociationCode] = useState("");
   const [tenantType, setTenantType] = useState<TenantType | null>(null);
+  const [individualName, setIndividualName] = useState("");
   const [companyName, setCompanyName] = useState("");
   const [companyCui, setCompanyCui] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -58,12 +59,15 @@ export function TenantTenanciesScreen() {
   const cuiValid = !isCompany || validateCUI(companyCui);
   const codeValid = associationCode.trim().length > 0;
   const formValid =
-    codeValid && tenantType !== null && (!isCompany || (companyName.trim().length > 0 && cuiValid));
+    codeValid &&
+    tenantType !== null &&
+    (isCompany ? companyName.trim().length > 0 && cuiValid : individualName.trim().length > 0);
 
   const resetForm = () => {
     setFormOpen(false);
     setAssociationCode("");
     setTenantType(null);
+    setIndividualName("");
     setCompanyName("");
     setCompanyCui("");
     setError(null);
@@ -82,7 +86,7 @@ export function TenantTenanciesScreen() {
               tenantCompanyName: companyName.trim(),
               tenantCompanyCui: companyCui.trim(),
             }
-          : { associationCode, tenantType: "INDIVIDUAL" },
+          : { associationCode, tenantType: "INDIVIDUAL", tenantIndividualName: individualName.trim() },
       );
       resetForm();
     } catch (err) {
@@ -194,6 +198,13 @@ export function TenantTenanciesScreen() {
                   />
                   {companyCui.length > 0 && !cuiValid ? <Text style={styles.error}>CUI invalid</Text> : null}
                 </>
+              ) : tenantType === "INDIVIDUAL" ? (
+                <TextInput
+                  style={styles.input}
+                  placeholder="Nume și prenume"
+                  value={individualName}
+                  onChangeText={setIndividualName}
+                />
               ) : null}
 
               {error ? <Text style={styles.error}>{error}</Text> : null}

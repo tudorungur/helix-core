@@ -1,0 +1,1 @@
+ALTER TABLE "tenancies" ADD COLUMN "tenant_individual_name" varchar(200);

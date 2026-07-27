@@ -125,10 +125,10 @@ export type Tenancy = {
   tenantType: TenantType | null;
   tenantCompanyName?: string;
   tenantCompanyCui?: string;
-  // Owner-facing "who am I renting to" identity for an INDIVIDUAL tenant — only present on the
-  // account-scoped `GET .../tenancies` list response (services/tenancies' `listTenancies`), not on
-  // create/update/claim/confirmC168's bare-row responses. Null until claimed, or once tenantType
-  // isn't INDIVIDUAL (COMPANY already has `tenantCompanyName` above).
+  // The tenant's own declared name for *this* tenancy — entered explicitly at claim time (not
+  // borrowed from `users.name`, same reasoning as `LegalEntity.name` not borrowing from the
+  // account's own signup name either). Undefined until claimed, or once tenantType isn't INDIVIDUAL
+  // (COMPANY already has `tenantCompanyName` above).
   tenantIndividualName?: string;
   // Form C168 (rental contract registration with ANAF, Section 4.4/4.10) — mandatory to surface for
   // C2B_WITHHOLDING, optional for UNREGISTERED_C2C, not applicable to REGISTERED_ANAF. The app never
