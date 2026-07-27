@@ -218,7 +218,7 @@ export function OwnerTenanciesScreen() {
             {unit ? <Text style={localStyles.unitTypeCaption}>{unitTypeLabel(unit.type)}</Text> : null}
           </View>
           <Text style={isActive ? localStyles.unitStatusAssociated : localStyles.unitStatusPending}>
-            {isActive ? "Asociat" : "Neasociat"}
+            {isActive ? "Asociată" : "Neasociată"}
           </Text>
         </View>
         <Text style={localStyles.entityCaption}>Data început: {tenancy.startDate}</Text>
@@ -541,7 +541,7 @@ const localStyles = StyleSheet.create({
   // a column with no fixed height risked Yoga collapsing it to zero height in some cases.
   unitOptionText: { fontSize: 15, fontWeight: "600" },
   optionText: { fontSize: 16, fontWeight: "600" },
-  // Wraps label + type so they stack as one block that the status badge (Asociat/Neasociat) can
+  // Wraps label + type so they stack as one block that the status badge (Asociată/Neasociată) can
   // center against, same as Portofoliu's unit rows.
   unitInfo: { flex: 1 },
   unitTypeCaption: { fontSize: 12, color: "#8e8e93", marginTop: 2 },
@@ -550,7 +550,7 @@ const localStyles = StyleSheet.create({
   titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   // Same visual language as Portofoliu's Închiriată/Liberă badge, but a different fact: whether the
   // tenant has entered the association_code in their own dashboard, not whether the unit has a
-  // tenancy contract at all (a unit can be "Închiriată" with its tenancy still "Neasociat").
+  // tenancy contract at all (a unit can be "Închiriată" with its tenancy still "Neasociată").
   unitStatusAssociated: { color: "#1a9e5c", fontSize: 12, fontWeight: "600" },
   unitStatusPending: { color: "#c77700", fontSize: 12, fontWeight: "600" },
   entityCaption: { fontSize: 12, color: "#8e8e93", marginTop: 2 },
