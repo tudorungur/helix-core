@@ -116,6 +116,9 @@ export function TenantTenanciesScreen() {
           <Text style={localStyles.unitStatusAssociated}>Chirie înregistrată</Text>
         </View>
         <View style={localStyles.tileDivider} />
+        {/* Who's renting to whom — the owner's counterpart to OwnerTenanciesScreen's "Chiriaș:"
+            line, from the legal entity denormalized onto GET /tenancies/mine. */}
+        <Text style={localStyles.entityCaption}>Proprietar: {tenancy.legalEntity.name}</Text>
         <Text style={localStyles.entityCaption}>Data început: {tenancy.startDate}</Text>
         <Text style={localStyles.entityCaption}>
           Cost chirie (lunar): {tenancy.rentAmount} {tenancy.rentCurrency}

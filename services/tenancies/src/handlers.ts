@@ -1,6 +1,6 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
-import { legalEntities, properties, tenancies, tenancyMemberships, units } from "@helix-core/domain";
+import { legalEntities, properties, tenancies, tenancyMemberships, units, users } from "@helix-core/domain";
 import type { Db } from "@helix-core/domain";
 import { HttpError, canWriteUnit } from "./auth.js";
 import type { AccountAccess } from "./auth.js";
@@ -48,18 +48,28 @@ function toTenancyPatch(input: Partial<z.infer<typeof tenancyInput>>) {
 }
 
 // Flat, account-wide — same shape as listUnits/listProperties (services/properties' precedent).
+// Left-joins the PRIMARY_TENANT's own `users.name` — the owner has no way to know who they're
+// actually renting to for an INDIVIDUAL tenant otherwise (`tenant_company_name` already covers the
+// COMPANY case, but individuals have no name stored anywhere on `tenancies` itself, Section 3.1's
+// data-minimization note only ever applied to CNP, not name). Null until claimed (no membership yet).
 export async function listTenancies(db: Db, access: AccountAccess | null, accountId: string) {
   if (!access) throw new HttpError(403, "No membership on this account");
   const rows = await db
-    .select({ tenancy: tenancies, unit: units })
+    .select({ tenancy: tenancies, unit: units, tenantIndividualName: users.name })
     .from(tenancies)
     .innerJoin(units, eq(units.id, tenancies.unitId))
     .innerJoin(properties, eq(properties.id, units.propertyId))
+    .leftJoin(
+      tenancyMemberships,
+      and(eq(tenancyMemberships.tenancyId, tenancies.id), eq(tenancyMemberships.role, "PRIMARY_TENANT")),
+    )
+    .leftJoin(users, eq(users.id, tenancyMemberships.userId))
     .where(eq(properties.accountId, accountId));
-  if (access.role === "OWNER") return rows.map((row) => row.tenancy);
+  const withTenantName = rows.map((row) => ({ ...row.tenancy, tenantIndividualName: row.tenantIndividualName }));
+  if (access.role === "OWNER") return withTenantName;
   return rows
     .filter((row) => access.propertyIds.has(row.unit.propertyId) || access.unitIds.has(row.unit.id))
-    .map((row) => row.tenancy);
+    .map((row) => ({ ...row.tenancy, tenantIndividualName: row.tenantIndividualName }));
 }
 
 async function getUnitOrThrow(db: Db, accountId: string, unitId: string) {
@@ -233,16 +243,19 @@ export async function claimTenancy(db: Db, userId: string, body: unknown) {
 }
 
 // The tenant has no account_membership to scope a request by — this is scoped by
-// tenancy_membership instead, and denormalizes unit/property fields the mobile client needs to
-// display "Chiriile mele" (a real tenant can't separately call GET /accounts/{accountId}/units,
-// they have no accountId at all).
+// tenancy_membership instead, and denormalizes unit/property/legalEntity fields the mobile client
+// needs to display "Chiriile mele" (a real tenant can't separately call
+// GET /accounts/{accountId}/units or .../legal-entities, they have no accountId at all). The
+// legal entity's name is who the tenant is actually renting from — same "who's renting to/from
+// whom" need as `listTenancies`' new `tenantIndividualName`, just the other direction.
 export async function listMyTenancies(db: Db, userId: string) {
   const rows = await db
-    .select({ tenancy: tenancies, unit: units, property: properties })
+    .select({ tenancy: tenancies, unit: units, property: properties, legalEntity: legalEntities })
     .from(tenancyMemberships)
     .innerJoin(tenancies, eq(tenancies.id, tenancyMemberships.tenancyId))
     .innerJoin(units, eq(units.id, tenancies.unitId))
     .innerJoin(properties, eq(properties.id, units.propertyId))
+    .innerJoin(legalEntities, eq(legalEntities.id, units.legalEntityId))
     .where(eq(tenancyMemberships.userId, userId));
 
   return rows.map((row) => ({
@@ -257,5 +270,6 @@ export async function listMyTenancies(db: Db, userId: string) {
       city: row.property.city,
       county: row.property.county,
     },
+    legalEntity: { id: row.legalEntity.id, name: row.legalEntity.legalName },
   }));
 }

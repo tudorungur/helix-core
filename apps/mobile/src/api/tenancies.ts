@@ -21,10 +21,16 @@ export type ApiTenancy = {
   tenantCompanyCui: string | null;
   anafC168Registered: boolean;
   anafC168RegistrationDate: string | null;
+  // Only populated by GET /accounts/{accountId}/tenancies (list) — create/update/claim/confirmC168
+  // return the bare row, which has no join to pull this from. The owner's-facing "who am I renting
+  // to" identity for an INDIVIDUAL tenant (COMPANY already has tenantCompanyName on the row itself);
+  // null until claimed (no tenancy_membership yet) or once `tenantType` isn't INDIVIDUAL.
+  tenantIndividualName?: string | null;
 };
 
-// GET /tenancies/mine denormalizes unit/property fields — a real tenant has no accountId to
-// separately fetch them with (no account_membership at all).
+// GET /tenancies/mine denormalizes unit/property/legalEntity fields — a real tenant has no
+// accountId to separately fetch them with (no account_membership at all). `legalEntity.name` is
+// the "who am I renting from" identity, the tenant-side counterpart to `tenantIndividualName`.
 export type ApiMyTenancy = ApiTenancy & {
   unit: { id: string; label: string; type: ApiUnitType };
   property: {
@@ -36,6 +42,7 @@ export type ApiMyTenancy = ApiTenancy & {
     city: string;
     county: string;
   };
+  legalEntity: { id: string; name: string | null };
 };
 
 export type ApiTenancyInput = {

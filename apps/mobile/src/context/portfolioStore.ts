@@ -125,6 +125,11 @@ export type Tenancy = {
   tenantType: TenantType | null;
   tenantCompanyName?: string;
   tenantCompanyCui?: string;
+  // Owner-facing "who am I renting to" identity for an INDIVIDUAL tenant — only present on the
+  // account-scoped `GET .../tenancies` list response (services/tenancies' `listTenancies`), not on
+  // create/update/claim/confirmC168's bare-row responses. Null until claimed, or once tenantType
+  // isn't INDIVIDUAL (COMPANY already has `tenantCompanyName` above).
+  tenantIndividualName?: string;
   // Form C168 (rental contract registration with ANAF, Section 4.4/4.10) — mandatory to surface for
   // C2B_WITHHOLDING, optional for UNREGISTERED_C2C, not applicable to REGISTERED_ANAF. The app never
   // submits it, just tracks the owner's self-confirmation.
@@ -132,12 +137,15 @@ export type Tenancy = {
   anafC168RegistrationDate?: string;
 };
 
-// "Chiriile mele" (TenantTenanciesScreen) needs unit/property display info denormalized onto each
-// tenancy — a real tenant has no `accountId` to separately fetch `units`/`properties` with (no
-// account_membership at all, Section 3.2).
+// "Chiriile mele" (TenantTenanciesScreen) needs unit/property/legalEntity display info
+// denormalized onto each tenancy — a real tenant has no `accountId` to separately fetch
+// `units`/`properties`/`legalEntities` with (no account_membership at all, Section 3.2).
+// `legalEntity.name` is the tenant-facing "who am I renting from" identity, the counterpart to
+// `Tenancy.tenantIndividualName` above.
 export type MyTenancy = Tenancy & {
   unit: { id: string; label: string; type: UnitType };
   property: Property;
+  legalEntity: { id: string; name: string };
 };
 
 // The UI reads/writes dates as ZZ-LL-AAAA (Romanian convention, OwnerTenanciesScreen's own
@@ -313,6 +321,7 @@ function fromApiTenancy(api: ApiTenancy): Tenancy {
     tenantType: api.tenantType,
     tenantCompanyName: api.tenantCompanyName ?? undefined,
     tenantCompanyCui: api.tenantCompanyCui ?? undefined,
+    tenantIndividualName: api.tenantIndividualName ?? undefined,
     anafC168Registered: api.anafC168Registered,
     anafC168RegistrationDate: api.anafC168RegistrationDate ?? undefined,
   };
@@ -331,6 +340,7 @@ function fromApiMyTenancy(api: ApiMyTenancy): MyTenancy {
       city: api.property.city,
       county: api.property.county,
     },
+    legalEntity: { id: api.legalEntity.id, name: api.legalEntity.name ?? "—" },
   };
 }
 

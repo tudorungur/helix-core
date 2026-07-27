@@ -205,6 +205,10 @@ export function OwnerTenanciesScreen() {
     const c168Relevant =
       tenancy.contractType === "C2B_WITHHOLDING" || tenancy.contractType === "UNREGISTERED_C2C";
     const c168Resolved = tenancy.anafC168Registered;
+    // Which of the two identity fields actually holds the tenant's name depends on tenantType —
+    // null until claimed (both stay unset while PENDING_TENANT).
+    const tenantIdentity =
+      tenancy.tenantType === "COMPANY" ? tenancy.tenantCompanyName : tenancy.tenantIndividualName;
 
     return (
       <TouchableOpacity
@@ -226,6 +230,13 @@ export function OwnerTenanciesScreen() {
           </Text>
         </View>
         <View style={localStyles.tileDivider} />
+        {/* Who's renting to whom — the owner's own legal entity (already resolved above for the
+            CNP reminder) and, once claimed, the tenant's identity (name for INDIVIDUAL, company
+            name for COMPANY; nothing yet while still PENDING_TENANT). */}
+        <Text style={localStyles.entityCaption}>Proprietar: {legalEntity?.name ?? "—"}</Text>
+        {tenantIdentity ? (
+          <Text style={localStyles.entityCaption}>Chiriaș: {tenantIdentity}</Text>
+        ) : null}
         <Text style={localStyles.entityCaption}>Data început: {tenancy.startDate}</Text>
         <Text style={localStyles.entityCaption}>
           Cost chirie (lunar): {tenancy.rentAmount} {tenancy.rentCurrency}
