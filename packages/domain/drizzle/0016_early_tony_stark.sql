@@ -1,0 +1,2 @@
+CREATE UNIQUE INDEX "legal_entities_user_cui_cnp_unique" ON "legal_entities" USING btree ("cui_cnp") WHERE "legal_entities"."user_id" is not null;--> statement-breakpoint
+ALTER TABLE "legal_entities" ADD CONSTRAINT "legal_entities_account_xor_user" CHECK (("legal_entities"."account_id" is not null) != ("legal_entities"."user_id" is not null));

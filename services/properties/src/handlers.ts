@@ -158,6 +158,20 @@ async function getPropertyOrThrow(db: Db, accountId: string, propertyId: string)
   return property;
 }
 
+// A unit's `legalEntityId` was accepted with no ownership check at all — since legal_entities can now
+// also be `userId`-scoped (a tenant's own identity, Section 4.4's 2026-07-27 consolidation), an
+// unvalidated UUID here could point a unit at a *tenant's personal* legal entity instead of one of this
+// account's own, not just another account's. Same "must belong to me" check `claimTenancy` already
+// applies on the tenant side (`legalEntities.userId = userId`), mirrored here for the owner side.
+async function assertLegalEntityBelongsToAccount(db: Db, accountId: string, legalEntityId: string) {
+  const [entity] = await db
+    .select({ id: legalEntities.id })
+    .from(legalEntities)
+    .where(and(eq(legalEntities.id, legalEntityId), eq(legalEntities.accountId, accountId)))
+    .limit(1);
+  if (!entity) throw new HttpError(404, "Legal entity not found");
+}
+
 export async function createUnit(
   db: Db,
   access: AccountAccess | null,
@@ -168,6 +182,7 @@ export async function createUnit(
   await getPropertyOrThrow(db, accountId, propertyId);
   if (!canWriteProperty(access, propertyId)) throw new HttpError(403, "No write access to this property");
   const input = unitInput.omit({ active: true }).parse(body);
+  await assertLegalEntityBelongsToAccount(db, accountId, input.legalEntityId);
   const [created] = await db
     .insert(units)
     .values({ propertyId, ...input, active: true })
@@ -186,6 +201,7 @@ export async function updateUnit(
   await getPropertyOrThrow(db, accountId, propertyId);
   if (!canWriteUnit(access, propertyId, id)) throw new HttpError(403, "No write access to this unit");
   const input = unitInput.partial().parse(body);
+  if (input.legalEntityId) await assertLegalEntityBelongsToAccount(db, accountId, input.legalEntityId);
   const [updated] = await db
     .update(units)
     .set(input)

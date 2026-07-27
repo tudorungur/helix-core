@@ -1,6 +1,7 @@
 import { relations, sql } from "drizzle-orm";
 import {
   boolean,
+  check,
   date,
   integer,
   numeric,
@@ -133,13 +134,15 @@ export const legalEntities = pgTable(
     legalName: varchar("legal_name", { length: 200 }),
     // A CNP identifies exactly one person and a CUI exactly one company — either should back at
     // most one *account's* legal entity (the uniqueness the owner+collaborators matching flow
-    // relies on, Section 3.1) — but not globally: the same person's CNP legitimately backs both
-    // their own account-scoped entity (renting out as a landlord) and their own user-scoped entity
-    // (renting as a tenant elsewhere, Section 4.4) at once, since those are different concerns
-    // entirely. Partial index (account-scoped rows only), not a plain column-level unique — a
-    // table-wide constraint would incorrectly reject that legitimate dual-role case. Collected
-    // immediately for business types (at property-add time, no purpose without it); deferred to the
-    // entity's first tenancy for UNREGISTERED_INDIVIDUAL (CNP is specially-protected personal data).
+    // relies on, Section 3.1), and separately, at most one *other user's* legal entity (nobody else
+    // should be able to claim the same CNP as their own personal identity) — but not globally across
+    // both: the same person's CNP legitimately backs both their own account-scoped entity (renting
+    // out as a landlord) and their own user-scoped entity (renting as a tenant elsewhere, Section
+    // 4.4) at once, since those are different concerns entirely. Two partial indexes below (one per
+    // scope), not a plain column-level unique — a table-wide constraint would incorrectly reject
+    // that legitimate dual-role case. Collected immediately for business types (at property-add
+    // time, no purpose without it); deferred to the entity's first tenancy for
+    // UNREGISTERED_INDIVIDUAL (CNP is specially-protected personal data).
     cuiCnp: varchar("cui_cnp", { length: 20 }),
     vatPayer: boolean("vat_payer").notNull().default(false),
     invoiceSeries: varchar("invoice_series", { length: 10 }),
@@ -147,9 +150,19 @@ export const legalEntities = pgTable(
     anafOauthStatus: varchar("anaf_oauth_status", { length: 30 }),
   },
   (table) => [
+    // Exactly one of account_id/user_id — previously only true by handler-code discipline (every
+    // insert path picks exactly one), not guaranteed by the DB itself. A lot of downstream logic
+    // (which uniqueness index applies, which "mine" list a row shows up in) assumes this holds.
+    check(
+      "legal_entities_account_xor_user",
+      sql`(${table.accountId} is not null) != (${table.userId} is not null)`,
+    ),
     uniqueIndex("legal_entities_account_cui_cnp_unique")
       .on(table.cuiCnp)
       .where(sql`${table.accountId} is not null`),
+    uniqueIndex("legal_entities_user_cui_cnp_unique")
+      .on(table.cuiCnp)
+      .where(sql`${table.userId} is not null`),
   ],
 );
 

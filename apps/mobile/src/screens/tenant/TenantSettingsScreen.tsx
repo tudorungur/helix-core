@@ -3,15 +3,9 @@ import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from "reac
 
 import { FormScreen } from "../../components/FormScreen";
 import { formStyles as styles } from "../../components/formStyles";
-import { Toggle } from "../../components/Toggle";
 import { usePortfolioStore } from "../../context/portfolioStore";
 import type { LegalForm } from "../../context/portfolioStore";
 import { validateCNP, validateCUI } from "../../validators/romanianFiscalId";
-
-const VAT_OPTIONS: [{ value: "YES" | "NO"; label: string }, { value: "YES" | "NO"; label: string }] = [
-  { value: "YES", label: "Da" },
-  { value: "NO", label: "Nu" },
-];
 
 const LEGAL_FORMS: { value: LegalForm; label: string }[] = [
   { value: "PF", label: "Persoană Fizică" },
@@ -26,9 +20,11 @@ const LEGAL_FORMS: { value: LegalForm; label: string }[] = [
 // consolidation: legal_entities is no longer account-only — a tenant needs the same reusable
 // identity to claim a tenancy under, PF or a company they control, instead of retyping a name/CUI
 // on every claim). `userId`-scoped (`myLegalEntities`), not `accountId`-scoped — a tenant has no
-// account at all. Field-for-field the same form as OwnerSettingsScreen; kept as its own file rather
-// than a shared component since the two screens' surrounding chrome (FormScreen header, delete-usage
-// check below) already diverge and a shared abstraction would need to route around that.
+// account at all. Same form shape as OwnerSettingsScreen minus `vatPayer`/`invoiceSeries` — those are
+// invoicing-specific (Section 4.6/4.8), meaningless for a tenant identity that never issues an
+// invoice through this app. Kept as its own file rather than a shared component since the two
+// screens already diverge (this field difference plus the delete-usage-check wording) and a shared
+// abstraction would need parameters to route around both.
 export function TenantSettingsScreen() {
   const myLegalEntities = usePortfolioStore((state) => state.myLegalEntities);
   const myLegalEntitiesLoading = usePortfolioStore((state) => state.myLegalEntitiesLoading);
@@ -53,8 +49,6 @@ export function TenantSettingsScreen() {
   const [nume, setNume] = useState("");
   const [prenume, setPrenume] = useState("");
   const [cui, setCui] = useState("");
-  const [vatPayer, setVatPayer] = useState<boolean | null>(null);
-  const [invoiceSeries, setInvoiceSeries] = useState("");
   // Same duplicate-check race guard as OwnerSettingsScreen — see its own comment for the render-order
   // reasoning.
   const [submitting, setSubmitting] = useState(false);
@@ -74,9 +68,7 @@ export function TenantSettingsScreen() {
   const formValid =
     legalForm !== null &&
     (isBusinessForm ? name.trim().length > 0 : nume.trim().length > 0 && prenume.trim().length > 0) &&
-    (isBusinessForm
-      ? cuiValid && !cuiDuplicate && vatPayer !== null
-      : !cnpFilled || (cnpValid && !cuiDuplicate));
+    (isBusinessForm ? cuiValid && !cuiDuplicate : !cnpFilled || (cnpValid && !cuiDuplicate));
 
   const resetForm = () => {
     setFormOpen(false);
@@ -86,8 +78,6 @@ export function TenantSettingsScreen() {
     setNume("");
     setPrenume("");
     setCui("");
-    setVatPayer(null);
-    setInvoiceSeries("");
   };
 
   const openAdd = () => {
@@ -110,8 +100,6 @@ export function TenantSettingsScreen() {
       setName(entity.name);
     }
     setCui(entity.cuiCnp ?? "");
-    setVatPayer(entity.vatPayer ?? null);
-    setInvoiceSeries(entity.invoiceSeries ?? "");
     setFormOpen(true);
   };
 
@@ -122,13 +110,7 @@ export function TenantSettingsScreen() {
   const submitForm = () => {
     if (!formValid || !legalForm) return;
     const fullName = isBusinessForm ? name.trim() : `${prenume.trim()} ${nume.trim()}`.trim();
-    const input = {
-      legalForm,
-      name: fullName,
-      cuiCnp: cui.trim() || null,
-      vatPayer: isBusinessForm ? (vatPayer ?? undefined) : undefined,
-      invoiceSeries: invoiceSeries.trim() || null,
-    };
+    const input = { legalForm, name: fullName, cuiCnp: cui.trim() || null };
     if (editingId) {
       Alert.alert("Confirmi modificările?", `Se salvează modificările pentru ${fullName}.`, [
         { text: "Anulează", style: "cancel" },
@@ -230,21 +212,6 @@ export function TenantSettingsScreen() {
               {cui.length > 0 && cuiValid && cuiDuplicate ? (
                 <Text style={styles.error}>Acest CUI e deja folosit de altă entitate legală</Text>
               ) : null}
-
-              <Toggle
-                label="Plătitor de TVA"
-                options={VAT_OPTIONS}
-                value={vatPayer === null ? null : vatPayer ? "YES" : "NO"}
-                onChange={(value) => setVatPayer(value === "YES")}
-              />
-
-              <TextInput
-                style={styles.input}
-                placeholder="Serie facturi (opțional)"
-                autoCapitalize="characters"
-                value={invoiceSeries}
-                onChangeText={setInvoiceSeries}
-              />
             </>
           ) : (
             <>
