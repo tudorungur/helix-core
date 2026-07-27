@@ -50,10 +50,15 @@ export function AppStack() {
     fetchAccounts();
   }, [fetchAccounts]);
 
-  // Once an account resolves, load legal entities/properties/units for it (Section 4.3).
+  // Once an account resolves, load legal entities/properties/units/tenancies for it (Section 4.3/
+  // 4.4) — and re-fetch every time the user switches back to Owner context, not just once at
+  // login. Data the owner doesn't control can change server-side while they're on the Tenant tabs
+  // (most notably: a tenant claiming an association_code flips that tenancy's status/contractType,
+  // Section 4.4 phase 2) — without this, switching back showed stale pre-claim data indefinitely,
+  // since nothing else in the app triggers a refetch.
   useEffect(() => {
-    if (activeAccountId) fetchPortfolio();
-  }, [activeAccountId, fetchPortfolio]);
+    if (activeAccountId && activeContext === "OWNER") fetchPortfolio();
+  }, [activeAccountId, activeContext, fetchPortfolio]);
 
   return (
     <Stack.Navigator>

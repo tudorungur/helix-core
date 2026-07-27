@@ -1,9 +1,12 @@
 import { apiRequest } from "./client";
+import type { ApiUnitType } from "./properties";
 
-// Wire shape returned by services/tenancies (Section 4.4, phase 1). `rentAmount` comes back as a
-// string — `rent_amount` is a Postgres `numeric` column, Drizzle's default representation for it.
-// No `tenantType`/`contractType`/`associated` concept yet on the wire — those are phase 2 (tenant
-// claims the code), not built server-side yet.
+export type ApiContractType = "REGISTERED_ANAF" | "C2B_WITHHOLDING" | "UNREGISTERED_C2C";
+export type ApiTenantType = "INDIVIDUAL" | "COMPANY";
+
+// Wire shape returned by services/tenancies. `rentAmount` comes back as a string — `rent_amount` is
+// a Postgres `numeric` column, Drizzle's default representation for it. `contractType`/`tenantType`
+// are null until a tenant claims the association_code (Section 4.4 phase 2).
 export type ApiTenancy = {
   id: string;
   unitId: string;
@@ -12,6 +15,27 @@ export type ApiTenancy = {
   rentCurrency: "EUR" | "RON";
   associationCode: string | null;
   status: string;
+  contractType: ApiContractType | null;
+  tenantType: ApiTenantType | null;
+  tenantCompanyName: string | null;
+  tenantCompanyCui: string | null;
+  anafC168Registered: boolean;
+  anafC168RegistrationDate: string | null;
+};
+
+// GET /tenancies/mine denormalizes unit/property fields — a real tenant has no accountId to
+// separately fetch them with (no account_membership at all).
+export type ApiMyTenancy = ApiTenancy & {
+  unit: { id: string; label: string; type: ApiUnitType };
+  property: {
+    id: string;
+    streetNumber: string;
+    street: string;
+    addressLine2: string | null;
+    postalCode: string;
+    city: string;
+    county: string;
+  };
 };
 
 export type ApiTenancyInput = {
@@ -19,6 +43,10 @@ export type ApiTenancyInput = {
   rentAmount: number;
   rentCurrency: "EUR" | "RON";
 };
+
+export type ApiClaimTenancyInput =
+  | { associationCode: string; tenantType: "INDIVIDUAL" }
+  | { associationCode: string; tenantType: "COMPANY"; tenantCompanyName: string; tenantCompanyCui: string };
 
 const base = (accountId: string) => `/accounts/${accountId}`;
 
@@ -30,4 +58,8 @@ export const tenanciesApi = {
     apiRequest<ApiTenancy>(`${base(accountId)}/tenancies/${id}`, { method: "PATCH", body: input }),
   remove: (accountId: string, id: string) =>
     apiRequest<void>(`${base(accountId)}/tenancies/${id}`, { method: "DELETE" }),
+  confirmC168: (accountId: string, id: string) =>
+    apiRequest<ApiTenancy>(`${base(accountId)}/tenancies/${id}/c168`, { method: "PATCH" }),
+  claim: (input: ApiClaimTenancyInput) => apiRequest<ApiTenancy>("/tenancies/claim", { method: "POST", body: input }),
+  mine: () => apiRequest<ApiMyTenancy[]>("/tenancies/mine"),
 };

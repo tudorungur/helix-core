@@ -1,103 +1,101 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 
 import { FormScreen } from "../../components/FormScreen";
 import { formStyles as styles } from "../../components/formStyles";
-import {
-  formatPropertyLocalityLine,
-  formatPropertyStreetLine,
-  unitTypeLabel,
-  usePortfolioStore,
-  utilityTypeLabel,
-  utilityUnitLabel,
-} from "../../context/portfolioStore";
-import type { Property, Tenancy, Unit } from "../../context/portfolioStore";
+import { Toggle } from "../../components/Toggle";
+import { formatPropertyLocalityLine, formatPropertyStreetLine, unitTypeLabel, usePortfolioStore } from "../../context/portfolioStore";
+import type { MyTenancy, TenantType } from "../../context/portfolioStore";
+import { validateCUI } from "../../validators/romanianFiscalId";
 
-type TenancyEntry = { tenancy: Tenancy; unit: Unit | undefined; property: Property | undefined };
+const TENANT_TYPES: [{ value: TenantType; label: string }, { value: TenantType; label: string }] = [
+  { value: "INDIVIDUAL", label: "Persoană Fizică" },
+  { value: "COMPANY", label: "Firmă" },
+];
 
-// Section 4.4, minimal slice — the tenant side of linking a tenancy: enter the association_code
-// the owner generated (OwnerTenanciesScreen). No backend/tenancy_membership exists yet, but Owner
-// and Tenant contexts share the same client-side `portfolioStore` in this app, so the code lookup
-// and the resulting `tenancy.associated` flip are real, not mocked — the owner's Închirieri tiles
-// show "Asociat"/"Neasociat" reflecting exactly what happens here. Every `associated` tenancy in
-// the shared store shows up below as "mine" — there's no per-user tenancy_membership yet to scope
-// this to a specific tenant account, single mock persona assumption same as the rest of the app.
-// What's still missing: creating a real `tenancy_membership` on this user, and the bilateral
-// fiscal data collection (Section 4.4).
+// Section 4.4, phase 2 — the tenant side of linking a tenancy is real now: entering the code calls
+// services/tenancies' POST /tenancies/claim (creates a tenancy_membership on this user server-side,
+// derives contract_type from the unit's legal_entity.type × the tenant_type picked here), and
+// "Chiriile mele" is populated from GET /tenancies/mine — a separate `myTenancies` state slice
+// (portfolioStore.ts), not the owner-scoped `tenancies`/`units`/`properties` arrays a real tenant
+// (no account_membership at all) could never fetch. **What's still missing, not this session**:
+// showing the unit's enabled utilities on each tile — that was possible before only because owner
+// and tenant shared one client-side mock; `unit_utilities` has no backend endpoint yet, and
+// `GET /tenancies/mine` doesn't (and structurally can't yet) return them.
 //
 // Same pinned-header pattern as the Owner CRUD screens (§4.3): the "+ Asociază chirie" trigger (or the
 // open code form) stays fixed above a hairline divider, while "Chiriile mele" scrolls underneath it.
 export function TenantTenanciesScreen() {
-  const units = usePortfolioStore((state) => state.units);
-  const properties = usePortfolioStore((state) => state.properties);
-  const tenancies = usePortfolioStore((state) => state.tenancies);
-  const associateTenancyByCode = usePortfolioStore((state) => state.associateTenancyByCode);
+  const myTenancies = usePortfolioStore((state) => state.myTenancies);
+  const myTenanciesLoading = usePortfolioStore((state) => state.myTenanciesLoading);
+  const myTenanciesError = usePortfolioStore((state) => state.myTenanciesError);
+  const fetchMyTenancies = usePortfolioStore((state) => state.fetchMyTenancies);
+  const claimTenancy = usePortfolioStore((state) => state.claimTenancy);
+
+  useEffect(() => {
+    fetchMyTenancies();
+  }, [fetchMyTenancies]);
 
   const [formOpen, setFormOpen] = useState(false);
   const [associationCode, setAssociationCode] = useState("");
+  const [tenantType, setTenantType] = useState<TenantType | null>(null);
+  const [companyName, setCompanyName] = useState("");
+  const [companyCui, setCompanyCui] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const isCompany = tenantType === "COMPANY";
+  const cuiValid = !isCompany || validateCUI(companyCui);
   const codeValid = associationCode.trim().length > 0;
+  const formValid =
+    codeValid && tenantType !== null && (!isCompany || (companyName.trim().length > 0 && cuiValid));
 
   const resetForm = () => {
     setFormOpen(false);
     setAssociationCode("");
+    setTenantType(null);
+    setCompanyName("");
+    setCompanyCui("");
     setError(null);
   };
 
-  const handleAssociate = () => {
+  const handleAssociate = async () => {
+    if (!formValid || !tenantType) return;
     setError(null);
-    // TODO(backend): no API exists yet — this is where the call goes once it does: resolve
-    // `associationCode` to a `tenancy`, create a `tenancy_membership` on this user, then collect
-    // the bilateral fiscal data (Section 4.4 — entity type, CUI/CNP) before the link finalizes.
-    // For now `associateTenancyByCode` only flips local state on the shared portfolioStore.
-    const result = associateTenancyByCode(associationCode);
-    if (result === "not_found") {
-      setError("Codul nu corespunde niciunei chirii.");
-      return;
+    setSubmitting(true);
+    try {
+      await claimTenancy(
+        tenantType === "COMPANY"
+          ? {
+              associationCode,
+              tenantType: "COMPANY",
+              tenantCompanyName: companyName.trim(),
+              tenantCompanyCui: companyCui.trim(),
+            }
+          : { associationCode, tenantType: "INDIVIDUAL" },
+      );
+      resetForm();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Nu am putut asocia chiria");
+    } finally {
+      setSubmitting(false);
     }
-    if (result === "already_associated") {
-      setError("Acest cod a fost deja folosit.");
-      return;
-    }
-    resetForm();
   };
 
-  const myTenancies: TenancyEntry[] = tenancies
-    .filter((tenancy) => tenancy.associated)
-    .map((tenancy) => {
-      const unit = units.find((u) => u.id === tenancy.unitId);
-      const property = unit ? properties.find((p) => p.id === unit.propertyId) : undefined;
-      return { tenancy, unit, property };
-    });
-  const propertiesWithTenancies = properties.filter((property) =>
-    myTenancies.some((entry) => entry.property?.id === property.id),
+  const propertiesWithTenancies = Array.from(
+    new Map(myTenancies.map((tenancy) => [tenancy.property.id, tenancy.property])).values(),
   );
-  const orphanTenancies = myTenancies.filter((entry) => !entry.property);
 
-  const renderTenancyTile = (entry: TenancyEntry, index: number) => (
+  const renderTenancyTile = (tenancy: MyTenancy, index: number) => (
     <View
-      key={entry.tenancy.id}
+      key={tenancy.id}
       style={[localStyles.tenancyListRow, index > 0 && localStyles.tenancyListRowDivider]}
     >
-      <Text style={localStyles.optionText}>{entry.unit ? entry.unit.label : "Unitate ștearsă"}</Text>
-      {entry.unit ? (
-        <Text style={localStyles.unitTypeCaption}>{unitTypeLabel(entry.unit.type)}</Text>
-      ) : null}
+      <Text style={localStyles.optionText}>{tenancy.unit.label}</Text>
+      <Text style={localStyles.unitTypeCaption}>{unitTypeLabel(tenancy.unit.type)}</Text>
       <Text style={localStyles.entityCaption}>
-        Cost chirie (lunar): {entry.tenancy.rentAmount} {entry.tenancy.rentCurrency} · din{" "}
-        {entry.tenancy.startDate}
+        Cost chirie (lunar): {tenancy.rentAmount} {tenancy.rentCurrency} · din {tenancy.startDate}
       </Text>
-      {entry.unit
-        ? entry.unit.utilities
-            .filter((utility) => utility.enabled)
-            .map((utility) => (
-              <Text key={utility.type} style={localStyles.utilityCaption}>
-                {utilityTypeLabel(utility.type)}: {utility.price.toFixed(2).replace(".", ",")}{" "}
-                {utilityUnitLabel(utility.type)}
-              </Text>
-            ))
-        : null}
     </View>
   );
 
@@ -118,14 +116,39 @@ export function TenantTenanciesScreen() {
                 value={associationCode}
                 onChangeText={setAssociationCode}
               />
-              {error ? <Text style={styles.error}>{error}</Text> : null}
               <Text style={styles.caption}>
-                Proprietarul generează acest cod când creează tenancy-ul pentru unitatea ta.
+                Proprietarul generează acest cod când creează chiria pentru unitatea ta.
               </Text>
 
+              <Text style={styles.sectionLabel}>Tip chiriaș</Text>
+              <Toggle options={TENANT_TYPES} value={tenantType} onChange={setTenantType} fullWidth />
+
+              {isCompany ? (
+                <>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Denumire firmă"
+                    value={companyName}
+                    onChangeText={setCompanyName}
+                  />
+                  <TextInput
+                    style={styles.input}
+                    placeholder="CUI"
+                    autoCapitalize="characters"
+                    value={companyCui}
+                    onChangeText={setCompanyCui}
+                  />
+                  {companyCui.length > 0 && !cuiValid ? <Text style={styles.error}>CUI invalid</Text> : null}
+                </>
+              ) : null}
+
+              {error ? <Text style={styles.error}>{error}</Text> : null}
+
               <View style={localStyles.row}>
-                <TouchableOpacity onPress={handleAssociate} disabled={!codeValid}>
-                  <Text style={!codeValid ? localStyles.actionMuted : localStyles.action}>Asociază</Text>
+                <TouchableOpacity onPress={handleAssociate} disabled={!formValid || submitting}>
+                  <Text style={!formValid || submitting ? localStyles.actionMuted : localStyles.action}>
+                    Asociază
+                  </Text>
                 </TouchableOpacity>
                 <TouchableOpacity onPress={resetForm}>
                   <Text style={localStyles.actionMuted}>Anulează</Text>
@@ -143,29 +166,24 @@ export function TenantTenanciesScreen() {
     >
       <Text style={styles.sectionLabel}>Chiriile mele</Text>
 
-      {myTenancies.length === 0 ? (
+      {myTenancies.length === 0 && myTenanciesLoading ? (
+        <Text style={styles.hint}>Se încarcă...</Text>
+      ) : myTenancies.length === 0 && myTenanciesError ? (
+        <Text style={styles.error}>{myTenanciesError}</Text>
+      ) : myTenancies.length === 0 ? (
         <Text style={styles.hint}>Nu ești asociat cu nicio chirie încă.</Text>
       ) : (
-        <>
-          {propertiesWithTenancies.map((property) => (
-            <View key={property.id} style={localStyles.propertyGroup}>
-              <Text style={localStyles.propertyAddress}>{formatPropertyStreetLine(property)}</Text>
-              <Text style={localStyles.propertyLocality}>{formatPropertyLocalityLine(property)}</Text>
-              <View style={localStyles.tenancyList}>
-                {myTenancies
-                  .filter((entry) => entry.property?.id === property.id)
-                  .map((entry, index) => renderTenancyTile(entry, index))}
-              </View>
+        propertiesWithTenancies.map((property) => (
+          <View key={property.id} style={localStyles.propertyGroup}>
+            <Text style={localStyles.propertyAddress}>{formatPropertyStreetLine(property)}</Text>
+            <Text style={localStyles.propertyLocality}>{formatPropertyLocalityLine(property)}</Text>
+            <View style={localStyles.tenancyList}>
+              {myTenancies
+                .filter((tenancy) => tenancy.property.id === property.id)
+                .map((tenancy, index) => renderTenancyTile(tenancy, index))}
             </View>
-          ))}
-          {orphanTenancies.length > 0 ? (
-            <View style={localStyles.propertyGroup}>
-              <View style={localStyles.tenancyList}>
-                {orphanTenancies.map((entry, index) => renderTenancyTile(entry, index))}
-              </View>
-            </View>
-          ) : null}
-        </>
+          </View>
+        ))
       )}
     </FormScreen>
   );
@@ -201,5 +219,4 @@ const localStyles = StyleSheet.create({
   optionText: { fontSize: 15, fontWeight: "600" },
   unitTypeCaption: { fontSize: 12, color: "#8e8e93", marginTop: 2 },
   entityCaption: { fontSize: 12, color: "#8e8e93", marginTop: 2 },
-  utilityCaption: { fontSize: 11, color: "#8e8e93", marginTop: 1 },
 });

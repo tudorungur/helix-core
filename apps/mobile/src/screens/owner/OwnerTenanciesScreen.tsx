@@ -35,9 +35,11 @@ function unitDisplayLabel(unit: Unit | undefined): string {
 // tenancy tile is tappable to edit its contract terms in place (same pattern as units in Portofoliu —
 // no separate "Editează" button, the whole tile opens the form), with a "Copiază" button on the
 // association code (expo-clipboard) so it doesn't have to be retyped by hand. `addTenancy`/
-// `updateTenancy`/`deleteTenancy` call the real services/tenancies API (Section 4.4 phase 1) as of
-// this session — the tenant-side "claim the code" step (phase 2) is still mocked, see
-// `associateTenancyByCode` in portfolioStore.ts.
+// `updateTenancy`/`deleteTenancy` call the real services/tenancies API — as of this session, so does
+// the tenant-side "claim the code" step (Section 4.4 phase 2): once a tenant claims, `status` flips
+// to `"ACTIVE"` and `contractType` gets derived server-side, which this screen reflects with two
+// reminders (C168 registration, and the owner's own CNP for C2B_WITHHOLDING) rather than asking for
+// anything itself — both are the owner's responsibility, not something a tenant claim blocks on.
 export function OwnerTenanciesScreen() {
   const legalEntities = usePortfolioStore((state) => state.legalEntities);
   const units = usePortfolioStore((state) => state.units);
@@ -46,6 +48,7 @@ export function OwnerTenanciesScreen() {
   const addTenancy = usePortfolioStore((state) => state.addTenancy);
   const updateTenancy = usePortfolioStore((state) => state.updateTenancy);
   const deleteTenancy = usePortfolioStore((state) => state.deleteTenancy);
+  const confirmC168 = usePortfolioStore((state) => state.confirmC168);
   const portfolioLoading = usePortfolioStore((state) => state.loading);
   const portfolioError = usePortfolioStore((state) => state.error);
 
@@ -185,39 +188,80 @@ export function OwnerTenanciesScreen() {
   // itself never nests inside this row (that used to make the whole row, form included, read as
   // one big blue block). Same split as Portofoliu's unit rows: the row here is the trigger +
   // highlight, `renderTenancyEditForm` below renders the actual form once per property group.
-  const renderTenancyTile = (tenancy: Tenancy, unit: Unit | undefined, index: number) => (
-    <TouchableOpacity
-      key={tenancy.id}
-      style={[
-        localStyles.tenancyListRow,
-        index > 0 && localStyles.tenancyListRowDivider,
-        editingTenancyId === tenancy.id && localStyles.tenancyListRowEditing,
-      ]}
-      onPress={() => openEditTenancy(tenancy)}
-    >
-      <View style={localStyles.titleRow}>
-        <View style={localStyles.unitInfo}>
-          <Text style={localStyles.optionText}>{unit ? unit.label : "Unitate ștearsă"}</Text>
-          {unit ? <Text style={localStyles.unitTypeCaption}>{unitTypeLabel(unit.type)}</Text> : null}
+  const renderTenancyTile = (tenancy: Tenancy, unit: Unit | undefined, index: number) => {
+    const isActive = tenancy.status === "ACTIVE";
+    const legalEntity = unit ? legalEntities.find((entity) => entity.id === unit.legalEntityId) : undefined;
+    // §4.10 — the withholding statement needs the owner's own CNP to identify the beneficiary; only
+    // relevant once C2B_WITHHOLDING is actually the derived contract type (i.e. after claim).
+    const needsOwnerCnp = tenancy.contractType === "C2B_WITHHOLDING" && !legalEntity?.cuiCnp;
+    // §4.4/4.10 — C168 registration is mandatory for C2B_WITHHOLDING, optional (still worth
+    // reminding) for UNREGISTERED_C2C, not applicable to REGISTERED_ANAF (e-Factura covers that).
+    const needsC168 =
+      (tenancy.contractType === "C2B_WITHHOLDING" || tenancy.contractType === "UNREGISTERED_C2C") &&
+      !tenancy.anafC168Registered;
+
+    return (
+      <TouchableOpacity
+        key={tenancy.id}
+        style={[
+          localStyles.tenancyListRow,
+          index > 0 && localStyles.tenancyListRowDivider,
+          editingTenancyId === tenancy.id && localStyles.tenancyListRowEditing,
+        ]}
+        onPress={() => openEditTenancy(tenancy)}
+      >
+        <View style={localStyles.titleRow}>
+          <View style={localStyles.unitInfo}>
+            <Text style={localStyles.optionText}>{unit ? unit.label : "Unitate ștearsă"}</Text>
+            {unit ? <Text style={localStyles.unitTypeCaption}>{unitTypeLabel(unit.type)}</Text> : null}
+          </View>
+          <Text style={isActive ? localStyles.unitStatusAssociated : localStyles.unitStatusPending}>
+            {isActive ? "Asociat" : "Neasociat"}
+          </Text>
         </View>
-        <Text style={tenancy.associated ? localStyles.unitStatusAssociated : localStyles.unitStatusPending}>
-          {tenancy.associated ? "Asociat" : "Neasociat"}
+        <Text style={localStyles.entityCaption}>
+          Cost chirie (lunar): {tenancy.rentAmount} {tenancy.rentCurrency} · din {tenancy.startDate}
         </Text>
-      </View>
-      <Text style={localStyles.entityCaption}>
-        Cost chirie (lunar): {tenancy.rentAmount} {tenancy.rentCurrency} · din {tenancy.startDate}
-      </Text>
-      <View style={localStyles.codeRow}>
-        <Text style={localStyles.tenancyCode}>Cod de asociere: {tenancy.associationCode}</Text>
-        <TouchableOpacity onPress={() => handleCopyCode(tenancy.id, tenancy.associationCode)} hitSlop={8}>
-          <Text style={localStyles.action}>{copiedTenancyId === tenancy.id ? "Copiat ✓" : "Copiază"}</Text>
-        </TouchableOpacity>
-      </View>
-      <Text style={localStyles.codeCaption}>
-        Acest cod trebuie transmis chiriașului pentru adăugarea unității în aplicația acestuia.
-      </Text>
-    </TouchableOpacity>
-  );
+        {!isActive ? (
+          <>
+            <View style={localStyles.codeRow}>
+              <Text style={localStyles.tenancyCode}>Cod de asociere: {tenancy.associationCode}</Text>
+              <TouchableOpacity onPress={() => handleCopyCode(tenancy.id, tenancy.associationCode)} hitSlop={8}>
+                <Text style={localStyles.action}>{copiedTenancyId === tenancy.id ? "Copiat ✓" : "Copiază"}</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={localStyles.codeCaption}>
+              Acest cod trebuie transmis chiriașului pentru adăugarea unității în aplicația acestuia.
+            </Text>
+          </>
+        ) : null}
+        {needsOwnerCnp ? (
+          <Text style={localStyles.reminderCaption}>
+            Completează CNP-ul entității legale {legalEntity?.name ?? ""} din tab-ul Setări, pentru a putea
+            genera decontul de reținere la sursă.
+          </Text>
+        ) : null}
+        {needsC168 ? (
+          <View style={localStyles.c168Row}>
+            <Text style={localStyles.reminderCaption}>
+              {tenancy.contractType === "C2B_WITHHOLDING"
+                ? "Contractul trebuie înregistrat la ANAF (Formular 168), în 30 de zile de la semnare."
+                : "Recomandat: înregistrează contractul la ANAF (Formular 168)."}
+            </Text>
+            <TouchableOpacity
+              onPress={(event) => {
+                event.stopPropagation();
+                confirmC168(tenancy.id).catch(handleApiError);
+              }}
+              hitSlop={8}
+            >
+              <Text style={localStyles.action}>Am înregistrat C168</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+      </TouchableOpacity>
+    );
+  };
 
   // Rendered once, after the entire tenancyList for whichever property group contains the tenancy
   // currently being edited (or after the orphans' list) — never nested inside a specific row.
@@ -455,6 +499,10 @@ const localStyles = StyleSheet.create({
   codeRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 6 },
   tenancyCode: { fontSize: 15, fontWeight: "700" },
   codeCaption: { fontSize: 13, color: "#8e8e93", marginTop: 2 },
+  // Compliance nudges (C168 registration, owner CNP for the withholding statement) — amber, same
+  // family as unitStatusPending, since both signal "still needs attention" rather than an error.
+  reminderCaption: { fontSize: 12, color: "#c77700", marginTop: 4, flex: 1 },
+  c168Row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 2 },
   row: { flexDirection: "row", alignItems: "center", gap: 16 },
   // Same text-link action row as Portofoliu's unit form (Salvează/Anulează/Șterge as plain links,
   // not a filled button + separate cancel link) — kept identical so both forms read as one pattern.

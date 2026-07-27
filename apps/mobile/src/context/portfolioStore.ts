@@ -3,7 +3,7 @@ import { create } from "zustand";
 import { legalEntitiesApi, propertiesApi, unitsApi } from "../api/properties";
 import type { ApiLegalEntity, ApiProperty, ApiUnit } from "../api/properties";
 import { tenanciesApi } from "../api/tenancies";
-import type { ApiTenancy } from "../api/tenancies";
+import type { ApiClaimTenancyInput, ApiMyTenancy, ApiTenancy } from "../api/tenancies";
 import { useAccountStore } from "./accountStore";
 
 export type LegalForm = "PF" | "PFA" | "II" | "IF" | "SRL" | "SA";
@@ -90,13 +90,16 @@ export type Unit = {
 };
 
 export type RentCurrency = "EUR" | "RON";
+export type TenancyStatus = "PENDING_TENANT" | "ACTIVE";
+export type ContractType = "REGISTERED_ANAF" | "C2B_WITHHOLDING" | "UNREGISTERED_C2C";
+export type TenantType = "INDIVIDUAL" | "COMPANY";
 
-// Section 4.4, phase 1 — a tenancy created on a unit, backed by services/tenancies as of this
-// session (owner creates the tenancy + gets an association_code back). `associated` stays
-// **client-only** — the tenant-side "claim the code" step (phase 2: tenant_type, derived
-// contract_type, tenancy_membership) isn't built server-side yet, so there's nothing real to flip
-// it from; it's preserved across re-fetches the same way `Unit.hasActiveTenancy`/`utilities` are
-// (`fromApiTenancy(api, existing)` below), not reset to `false` every time.
+// Section 4.4 — a tenancy created on a unit, backed by services/tenancies. Owner creates it
+// (`status="PENDING_TENANT"`, `contractType`/`tenantType` both null — unknowable until a tenant
+// claims the code); the tenant claiming it (phase 2, this session) fills in `tenantType` (+ company
+// fields), the server derives `contractType`, flips `status` to `"ACTIVE"`, and clears
+// `associationCode`. Nothing client-only left on this type anymore — `status` replaces the old
+// mocked `associated` boolean now that the real claim flow exists.
 export type Tenancy = {
   id: string;
   unitId: string;
@@ -104,11 +107,24 @@ export type Tenancy = {
   rentAmount: number;
   rentCurrency: RentCurrency;
   associationCode: string;
-  // Flips to true once the tenant enters this code in their own dashboard (TenantTenanciesScreen,
-  // §4.4) — distinct from the unit's own Închiriată/Liberă flag (whether a tenancy contract exists
-  // at all): a unit can be "Închiriată" with its tenancy still "Neasociat" if the owner created the
-  // tenancy but the tenant hasn't claimed it yet.
-  associated: boolean;
+  status: TenancyStatus;
+  contractType: ContractType | null;
+  tenantType: TenantType | null;
+  tenantCompanyName?: string;
+  tenantCompanyCui?: string;
+  // Form C168 (rental contract registration with ANAF, Section 4.4/4.10) — mandatory to surface for
+  // C2B_WITHHOLDING, optional for UNREGISTERED_C2C, not applicable to REGISTERED_ANAF. The app never
+  // submits it, just tracks the owner's self-confirmation.
+  anafC168Registered: boolean;
+  anafC168RegistrationDate?: string;
+};
+
+// "Chiriile mele" (TenantTenanciesScreen) needs unit/property display info denormalized onto each
+// tenancy — a real tenant has no `accountId` to separately fetch `units`/`properties` with (no
+// account_membership at all, Section 3.2).
+export type MyTenancy = Tenancy & {
+  unit: { id: string; label: string; type: UnitType };
+  property: Property;
 };
 
 // The UI reads/writes dates as ZZ-LL-AAAA (Romanian convention, OwnerTenanciesScreen's own
@@ -266,8 +282,7 @@ function fromApiUnit(api: ApiUnit, existing: Unit | undefined): Unit {
   };
 }
 
-// Preserves the client-only `associated` flag across a re-fetch, same pattern as `fromApiUnit`.
-function fromApiTenancy(api: ApiTenancy, existing: Tenancy | undefined): Tenancy {
+function fromApiTenancy(api: ApiTenancy): Tenancy {
   return {
     id: api.id,
     unitId: api.unitId,
@@ -275,7 +290,29 @@ function fromApiTenancy(api: ApiTenancy, existing: Tenancy | undefined): Tenancy
     rentAmount: Number(api.rentAmount),
     rentCurrency: api.rentCurrency,
     associationCode: api.associationCode ?? "",
-    associated: existing?.associated ?? false,
+    status: api.status as TenancyStatus,
+    contractType: api.contractType,
+    tenantType: api.tenantType,
+    tenantCompanyName: api.tenantCompanyName ?? undefined,
+    tenantCompanyCui: api.tenantCompanyCui ?? undefined,
+    anafC168Registered: api.anafC168Registered,
+    anafC168RegistrationDate: api.anafC168RegistrationDate ?? undefined,
+  };
+}
+
+function fromApiMyTenancy(api: ApiMyTenancy): MyTenancy {
+  return {
+    ...fromApiTenancy(api),
+    unit: { id: api.unit.id, label: api.unit.label, type: api.unit.type },
+    property: {
+      id: api.property.id,
+      streetNumber: api.property.streetNumber,
+      street: api.property.street,
+      addressLine2: api.property.addressLine2 ?? undefined,
+      postalCode: api.property.postalCode,
+      city: api.property.city,
+      county: api.property.county,
+    },
   };
 }
 
@@ -323,18 +360,23 @@ type PortfolioState = {
   ) => Promise<Tenancy>;
   updateTenancy: (id: string, startDate: string, rentAmount: number, rentCurrency: RentCurrency) => Promise<void>;
   deleteTenancy: (id: string) => Promise<void>;
-  associateTenancyByCode: (code: string) => "associated" | "already_associated" | "not_found";
+  confirmC168: (id: string) => Promise<void>;
+  myTenancies: MyTenancy[];
+  myTenanciesLoading: boolean;
+  myTenanciesError: string | null;
+  fetchMyTenancies: () => Promise<void>;
+  claimTenancy: (input: ApiClaimTenancyInput) => Promise<Tenancy>;
 };
 
 // Section 4.3/4.4 — the owner's fiscal identities (legal_entities), physical inventory
-// (properties → units), and tenancies are all **real** now, backed by services/properties/
-// services/tenancies (Section 6) — every add/update/delete/fetch below calls the live API, scoped
-// to `useAccountStore`'s `activeAccountId`. Two things remain client-only by deliberate scope
-// decision, not oversight: each unit's `utilities` (no `unit_utilities` endpoint yet) and each
-// tenancy's `associated` flag (the tenant-side "claim the code" step, §4.4 phase 2, isn't built
-// server-side yet) — both preserved across re-fetches (`fromApiUnit`/`fromApiTenancy`) instead of
-// being reset to defaults. `units.hasActiveTenancy`, by contrast, *is* now derived from real fetched
-// tenancy data inside `fetchPortfolio` below, not a client-only guess.
+// (properties → units), and tenancies (both phases: owner creates, tenant claims) are all **real**
+// now, backed by services/properties/services/tenancies (Section 6) — every add/update/delete/fetch
+// below calls the live API, scoped to `useAccountStore`'s `activeAccountId`. The one thing still
+// client-only by deliberate scope decision, not oversight: each unit's `utilities` (no
+// `unit_utilities` endpoint yet) — preserved across re-fetches (`fromApiUnit`) instead of being
+// reset to defaults. `units.hasActiveTenancy` is derived from real fetched tenancy data inside
+// `fetchPortfolio` below, and `tenancies` themselves carry no client-only fields anymore now that
+// the tenant-claim flow is real (`fromApiTenancy` needs no `existing` merge).
 export const usePortfolioStore = create<PortfolioState>((set, get) => ({
   legalEntities: [],
   properties: [],
@@ -353,10 +395,7 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
         tenanciesApi.list(accountId),
       ]);
       const existingUnits = get().units;
-      const existingTenancies = get().tenancies;
-      const nextTenancies = tenancies.map((tenancy) =>
-        fromApiTenancy(tenancy, existingTenancies.find((t) => t.id === tenancy.id)),
-      );
+      const nextTenancies = tenancies.map(fromApiTenancy);
       // `hasActiveTenancy` is now derived from the real, just-fetched tenancies list (an open
       // tenancy on the unit), not merged from local state like `utilities` below — tenancies
       // (unlike utilities) are real server data as of this session, so this is the authoritative
@@ -458,7 +497,7 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
       rentAmount,
       rentCurrency,
     });
-    const tenancy = fromApiTenancy(created, undefined);
+    const tenancy = fromApiTenancy(created);
     set((state) => ({
       tenancies: [...state.tenancies, tenancy],
       units: state.units.map((unit) => (unit.id === unitId ? { ...unit, hasActiveTenancy: true } : unit)),
@@ -466,13 +505,12 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
     return tenancy;
   },
   updateTenancy: async (id, startDate, rentAmount, rentCurrency) => {
-    const existing = get().tenancies.find((tenancy) => tenancy.id === id);
     const updated = await tenanciesApi.update(currentAccountId(), id, {
       startDate: toIsoDate(startDate),
       rentAmount,
       rentCurrency,
     });
-    const tenancy = fromApiTenancy(updated, existing);
+    const tenancy = fromApiTenancy(updated);
     set((state) => ({
       tenancies: state.tenancies.map((t) => (t.id === id ? tenancy : t)),
     }));
@@ -489,18 +527,38 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
         : state.units,
     }));
   },
-  // Section 4.4, tenant side — resolves the code entered in TenantTenanciesScreen against the same
-  // shared store the owner side writes to (no backend needed for this loop to actually work in the
-  // mock, since both contexts run in the same client app). Case/whitespace-insensitive, matching how
-  // the code is displayed (uppercase alphabet, Section context above).
-  associateTenancyByCode: (code) => {
-    const normalized = code.trim().toUpperCase();
-    const tenancy = get().tenancies.find((t) => t.associationCode === normalized);
-    if (!tenancy) return "not_found";
-    if (tenancy.associated) return "already_associated";
+  confirmC168: async (id) => {
+    const updated = await tenanciesApi.confirmC168(currentAccountId(), id);
+    const tenancy = fromApiTenancy(updated);
     set((state) => ({
-      tenancies: state.tenancies.map((t) => (t.id === tenancy.id ? { ...t, associated: true } : t)),
+      tenancies: state.tenancies.map((t) => (t.id === id ? tenancy : t)),
     }));
-    return "associated";
+  },
+
+  // Section 4.4, phase 2 — the tenant side. A tenant has no `account_membership` at all (that's the
+  // point), so this is its own state slice, not folded into `tenancies` above (which is
+  // account-scoped, `fetchPortfolio`-driven, and meaningless for a user with no account).
+  myTenancies: [],
+  myTenanciesLoading: false,
+  myTenanciesError: null,
+  fetchMyTenancies: async () => {
+    set({ myTenanciesLoading: true, myTenanciesError: null });
+    try {
+      const mine = await tenanciesApi.mine();
+      set({ myTenancies: mine.map(fromApiMyTenancy), myTenanciesLoading: false });
+    } catch (error) {
+      set({
+        myTenanciesLoading: false,
+        myTenanciesError: error instanceof Error ? error.message : "Nu am putut încărca chiriile",
+      });
+    }
+  },
+  claimTenancy: async (input) => {
+    const created = await tenanciesApi.claim(input);
+    // Re-fetch rather than append locally — the claim response is a bare `Tenancy`, not denormalized
+    // with unit/property info the way `myTenancies` needs (`fromApiMyTenancy`'s shape), so there's
+    // nothing useful to merge in by hand here.
+    await get().fetchMyTenancies();
+    return fromApiTenancy(created);
   },
 }));

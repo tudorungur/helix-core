@@ -1,7 +1,8 @@
-// Lambda handler for the tenancies bounded context (Section 6). Phase 1 (Section 4.4): owner
-// creates a tenancy on one of their units, generating an association_code; listing/edit/delete.
-// The tenant-side "claim the code" step (bilateral fiscal collection, tenancy_membership) is phase
-// 2, not built here — see project_helix_core_backend_services memory for the phasing decision.
+// Lambda handler for the tenancies bounded context (Section 6). Owner-side, account-scoped
+// (Section 4.4 phase 1): create a tenancy on a unit, generating an association_code; list/edit/
+// delete; C168 self-confirm. Tenant-side, user-scoped (Section 4.4 phase 2): claim a code, list
+// "my tenancies" — these two have no accountId at all (a tenant has no account_membership), so they
+// route BEFORE the accountId requirement below, not through it.
 import { z } from "zod";
 import { getDb } from "./db.js";
 import { HttpError, getUserId, resolveAccountAccess } from "./auth.js";
@@ -27,6 +28,14 @@ export async function handler(event: APIGatewayProxyEventV2WithJWTAuthorizer): P
     const db = await getDb();
     const userId = getUserId(event);
     const params = event.pathParameters ?? {};
+
+    switch (event.routeKey) {
+      case "POST /tenancies/claim":
+        return json(201, await handlers.claimTenancy(db, userId, parseBody(event)));
+      case "GET /tenancies/mine":
+        return json(200, await handlers.listMyTenancies(db, userId));
+    }
+
     const accountId = params.accountId;
     if (!accountId) throw new HttpError(400, "Missing accountId path parameter");
 
@@ -39,6 +48,8 @@ export async function handler(event: APIGatewayProxyEventV2WithJWTAuthorizer): P
         return json(201, await handlers.createTenancy(db, access, accountId, params.unitId!, parseBody(event)));
       case "PATCH /accounts/{accountId}/tenancies/{id}":
         return json(200, await handlers.updateTenancy(db, access, accountId, params.id!, parseBody(event)));
+      case "PATCH /accounts/{accountId}/tenancies/{id}/c168":
+        return json(200, await handlers.confirmC168(db, access, accountId, params.id!));
       case "DELETE /accounts/{accountId}/tenancies/{id}":
         await handlers.deleteTenancy(db, access, accountId, params.id!);
         return json(204, null);

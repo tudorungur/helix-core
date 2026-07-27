@@ -1,6 +1,6 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
-import { properties, tenancies, units } from "@helix-core/domain";
+import { legalEntities, properties, tenancies, tenancyMemberships, units } from "@helix-core/domain";
 import type { Db } from "@helix-core/domain";
 import { HttpError, canWriteUnit } from "./auth.js";
 import type { AccountAccess } from "./auth.js";
@@ -139,4 +139,121 @@ export async function deleteTenancy(db: Db, access: AccountAccess | null, accoun
   const { tenancy, unit } = await getTenancyOrThrow(db, accountId, id);
   if (!canWriteUnit(access, unit.propertyId, unit.id)) throw new HttpError(403, "No write access to this unit");
   await db.delete(tenancies).where(eq(tenancies.id, tenancy.id));
+}
+
+// Owner self-confirms Form C168 registration was done outside the app (Section 4.4/4.10 — the app
+// never submits C168 itself, only tracks that it happened). Mandatory to *show* for
+// C2B_WITHHOLDING, optional for UNREGISTERED_C2C, not applicable to REGISTERED_ANAF — that
+// distinction is enforced client-side (this endpoint just records the confirmation regardless of
+// contract_type, same as any other field edit).
+export async function confirmC168(db: Db, access: AccountAccess | null, accountId: string, id: string) {
+  const { tenancy, unit } = await getTenancyOrThrow(db, accountId, id);
+  if (!canWriteUnit(access, unit.propertyId, unit.id)) throw new HttpError(403, "No write access to this unit");
+  const [updated] = await db
+    .update(tenancies)
+    .set({ anafC168Registered: true, anafC168RegistrationDate: new Date().toISOString().slice(0, 10) })
+    .where(eq(tenancies.id, tenancy.id))
+    .returning();
+  return updated;
+}
+
+// ---- Section 4.4, phase 2 — tenant claims an association_code ----
+// Not account-scoped: the claiming user has no account_membership at all (that's the whole point —
+// they're a tenant, not an owner/collaborator), so there's no `accountId`/`AccountAccess` to check
+// here. Possession of the code is the authorization.
+
+// legal_entities.type doesn't distinguish PFA/II/IF or SRL/SA (Section 3.1) — only whether the
+// owner is UNREGISTERED_INDIVIDUAL matters for deriving contract_type. A registered owner (any
+// business form) always issues e-Factura regardless of who the tenant is — B2B and B2C both map to
+// the same REGISTERED_ANAF value (Section 1's informal labels aren't stored, only the 3-way
+// contract_type enum). Only an unregistered-individual owner branches by tenant_type.
+function deriveContractType(
+  legalEntityType: "UNREGISTERED_INDIVIDUAL" | "REGISTERED_INDIVIDUAL" | "REGISTERED_COMPANY",
+  tenantType: "INDIVIDUAL" | "COMPANY",
+): "REGISTERED_ANAF" | "C2B_WITHHOLDING" | "UNREGISTERED_C2C" {
+  if (legalEntityType !== "UNREGISTERED_INDIVIDUAL") return "REGISTERED_ANAF";
+  return tenantType === "COMPANY" ? "C2B_WITHHOLDING" : "UNREGISTERED_C2C";
+}
+
+// Tenant's own CNP is deliberately never collected (Section 3.1 — not legally required on an
+// invoice to an individual, and `tenancies` has no column for it at all). Only company details are
+// asked, and only when tenant_type = COMPANY.
+const claimInput = z.discriminatedUnion("tenantType", [
+  z.object({
+    associationCode: z.string().trim().min(1),
+    tenantType: z.literal("INDIVIDUAL"),
+  }),
+  z.object({
+    associationCode: z.string().trim().min(1),
+    tenantType: z.literal("COMPANY"),
+    tenantCompanyName: z.string().trim().min(1),
+    tenantCompanyCui: z.string().trim().min(1),
+  }),
+]);
+
+export async function claimTenancy(db: Db, userId: string, body: unknown) {
+  const input = claimInput.parse(body);
+  const code = input.associationCode.trim().toUpperCase();
+
+  const [row] = await db
+    .select({ tenancy: tenancies, legalEntity: legalEntities })
+    .from(tenancies)
+    .innerJoin(units, eq(units.id, tenancies.unitId))
+    .innerJoin(legalEntities, eq(legalEntities.id, units.legalEntityId))
+    .where(eq(tenancies.associationCode, code))
+    .limit(1);
+  if (!row) throw new HttpError(404, "Cod de asociere invalid");
+  if (row.tenancy.status !== "PENDING_TENANT") throw new HttpError(409, "Această chirie a fost deja asociată");
+
+  const contractType = deriveContractType(row.legalEntity.type, input.tenantType);
+
+  const [updated] = await db
+    .update(tenancies)
+    .set({
+      tenantType: input.tenantType,
+      tenantCompanyName: input.tenantType === "COMPANY" ? input.tenantCompanyName : null,
+      tenantCompanyCui: input.tenantType === "COMPANY" ? input.tenantCompanyCui : null,
+      contractType,
+      status: "ACTIVE",
+      associationCode: null,
+    })
+    .where(eq(tenancies.id, row.tenancy.id))
+    .returning();
+
+  await db.insert(tenancyMemberships).values({
+    tenancyId: row.tenancy.id,
+    userId,
+    role: "PRIMARY_TENANT",
+    acceptedAt: new Date(),
+  });
+
+  return updated;
+}
+
+// The tenant has no account_membership to scope a request by — this is scoped by
+// tenancy_membership instead, and denormalizes unit/property fields the mobile client needs to
+// display "Chiriile mele" (a real tenant can't separately call GET /accounts/{accountId}/units,
+// they have no accountId at all).
+export async function listMyTenancies(db: Db, userId: string) {
+  const rows = await db
+    .select({ tenancy: tenancies, unit: units, property: properties })
+    .from(tenancyMemberships)
+    .innerJoin(tenancies, eq(tenancies.id, tenancyMemberships.tenancyId))
+    .innerJoin(units, eq(units.id, tenancies.unitId))
+    .innerJoin(properties, eq(properties.id, units.propertyId))
+    .where(eq(tenancyMemberships.userId, userId));
+
+  return rows.map((row) => ({
+    ...row.tenancy,
+    unit: { id: row.unit.id, label: row.unit.label, type: row.unit.type },
+    property: {
+      id: row.property.id,
+      streetNumber: row.property.streetNumber,
+      street: row.property.street,
+      addressLine2: row.property.addressLine2,
+      postalCode: row.property.postalCode,
+      city: row.property.city,
+      county: row.property.county,
+    },
+  }));
 }

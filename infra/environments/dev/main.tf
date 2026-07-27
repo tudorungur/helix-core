@@ -116,6 +116,9 @@ module "tenancies_lambda" {
     "GET /accounts/{accountId}/tenancies",
     "POST /accounts/{accountId}/units/{unitId}/tenancies",
     "PATCH /accounts/{accountId}/tenancies/{id}",
+    "PATCH /accounts/{accountId}/tenancies/{id}/c168",
     "DELETE /accounts/{accountId}/tenancies/{id}",
+    "POST /tenancies/claim",
+    "GET /tenancies/mine",
   ]
 }
