@@ -54,10 +54,9 @@ export async function deleteMyLegalEntity(db: Db, userId: string, id: string) {
 }
 
 // Section 4.4, phase 1 — the owner picks an unrented unit and creates a tenancy, which generates an
-// association_code to pass along however they like. The bilateral fiscal-collection step a tenant
-// runs to *claim* that code (tenant_type, derived contract_type, tenancy_membership) is phase 2, not
-// built here — `contract_type`/`tenant_type` are nullable on the table for exactly this reason (see
-// SPEC.md §3.1's tenancies implementation-status note).
+// association_code to pass along however they like. The bilateral fiscal-collection step (a tenant
+// claiming that code, picking one of their own legal_entities, creating the tenancy_membership) is
+// phase 2, further down this file (`claimTenancy`).
 
 // Excludes visually ambiguous characters (0/O, 1/I) — read off one screen, typed into another by
 // hand. Same alphabet the mobile mock (`portfolioStore.ts`) already used client-side.
@@ -95,22 +94,53 @@ function toTenancyPatch(input: Partial<z.infer<typeof tenancyInput>>) {
   };
 }
 
+// legal_entities.type doesn't distinguish PFA/II/IF or SRL/SA (Section 3.1) — only whether either
+// side is UNREGISTERED_INDIVIDUAL matters for deriving contract_type. A registered owner (any
+// business form) always issues e-Factura regardless of who the tenant is — B2B and B2C both map to
+// the same REGISTERED_ANAF value (Section 1's informal labels aren't stored, only the 3-way
+// contract_type enum). Only an unregistered-individual owner branches by whether the tenant's own
+// entity is registered too — same collapse as the owner side. **Computed fresh on every read, never
+// stored** (2026-07-28) — see the note on `tenancies.contract_type`'s removal in schema.ts for why: a
+// stored snapshot went stale the moment either side's `legal_entities.type` changed after the fact.
+function deriveContractType(
+  ownerLegalEntityType: "UNREGISTERED_INDIVIDUAL" | "REGISTERED_INDIVIDUAL" | "REGISTERED_COMPANY",
+  tenantLegalEntityType: "UNREGISTERED_INDIVIDUAL" | "REGISTERED_INDIVIDUAL" | "REGISTERED_COMPANY",
+): "REGISTERED_ANAF" | "C2B_WITHHOLDING" | "UNREGISTERED_C2C" {
+  if (ownerLegalEntityType !== "UNREGISTERED_INDIVIDUAL") return "REGISTERED_ANAF";
+  return tenantLegalEntityType === "UNREGISTERED_INDIVIDUAL" ? "UNREGISTERED_C2C" : "C2B_WITHHOLDING";
+}
+
+// `legalEntities` (plain, no alias) always means the *owner's* own entity below (via
+// `units.legal_entity_id`) — `tenantLegalEntities` (aliased) is the tenant's own, needed alongside it
+// in the same query to derive `contractType` fresh every time.
+const tenantLegalEntities = alias(legalEntities, "tenant_legal_entities");
+
 // Flat, account-wide — same shape as listUnits/listProperties (services/properties' precedent), plus
 // a `tenantLegalEntity` denormalized in: the owner has no other way to see who's renting (that
 // legal_entities row is `userId`-scoped to the tenant, not part of the owner's own account at all,
-// Section 4.4's 2026-07-27 consolidation). LEFT JOIN — null until claimed (`tenantLegalEntityId` is
-// null on a PENDING_TENANT tenancy).
+// Section 4.4's 2026-07-27 consolidation). LEFT JOIN on the tenant's side — null until claimed
+// (`tenantLegalEntityId` is null on a PENDING_TENANT tenancy); INNER JOIN on the owner's own side —
+// every unit always has one.
 export async function listTenancies(db: Db, access: AccountAccess | null, accountId: string) {
   if (!access) throw new HttpError(403, "No membership on this account");
   const rows = await db
-    .select({ tenancy: tenancies, unit: units, tenantLegalEntity: legalEntities })
+    .select({
+      tenancy: tenancies,
+      unit: units,
+      ownerLegalEntity: legalEntities,
+      tenantLegalEntity: tenantLegalEntities,
+    })
     .from(tenancies)
     .innerJoin(units, eq(units.id, tenancies.unitId))
     .innerJoin(properties, eq(properties.id, units.propertyId))
-    .leftJoin(legalEntities, eq(legalEntities.id, tenancies.tenantLegalEntityId))
+    .innerJoin(legalEntities, eq(legalEntities.id, units.legalEntityId))
+    .leftJoin(tenantLegalEntities, eq(tenantLegalEntities.id, tenancies.tenantLegalEntityId))
     .where(eq(properties.accountId, accountId));
   const toApi = (row: (typeof rows)[number]) => ({
     ...row.tenancy,
+    contractType: row.tenantLegalEntity
+      ? deriveContractType(row.ownerLegalEntity.type, row.tenantLegalEntity.type)
+      : null,
     tenantLegalEntity: row.tenantLegalEntity
       ? { id: row.tenantLegalEntity.id, name: row.tenantLegalEntity.legalName, type: row.tenantLegalEntity.type }
       : null,
@@ -121,19 +151,29 @@ export async function listTenancies(db: Db, access: AccountAccess | null, accoun
     .map(toApi);
 }
 
-// Every handler that returns a single tenancy resolves `tenantLegalEntity` the same way as
-// `listTenancies` — otherwise a create/update/confirmC168 response would silently drop the field the
-// mobile store merges in place (`tenancies: state.tenancies.map(t => t.id === id ? tenancy : t)`),
-// wiping out an already-known tenant identity on the next unrelated edit.
+// Every handler that returns a single tenancy resolves `tenantLegalEntity`/`contractType` the same
+// way as `listTenancies` — otherwise a create/update/confirmC168 response would silently drop or go
+// stale on the field the mobile store merges in place (`tenancies: state.tenancies.map(t => t.id ===
+// id ? tenancy : t)`), wiping out an already-known tenant identity (or serving a stale contract type)
+// on the next unrelated edit.
 async function withTenantLegalEntity(db: Db, tenancyId: string) {
   const [row] = await db
-    .select({ tenancy: tenancies, tenantLegalEntity: legalEntities })
+    .select({
+      tenancy: tenancies,
+      ownerLegalEntity: legalEntities,
+      tenantLegalEntity: tenantLegalEntities,
+    })
     .from(tenancies)
-    .leftJoin(legalEntities, eq(legalEntities.id, tenancies.tenantLegalEntityId))
+    .innerJoin(units, eq(units.id, tenancies.unitId))
+    .innerJoin(legalEntities, eq(legalEntities.id, units.legalEntityId))
+    .leftJoin(tenantLegalEntities, eq(tenantLegalEntities.id, tenancies.tenantLegalEntityId))
     .where(eq(tenancies.id, tenancyId))
     .limit(1);
   return {
     ...row.tenancy,
+    contractType: row.tenantLegalEntity
+      ? deriveContractType(row.ownerLegalEntity.type, row.tenantLegalEntity.type)
+      : null,
     tenantLegalEntity: row.tenantLegalEntity
       ? { id: row.tenantLegalEntity.id, name: row.tenantLegalEntity.legalName, type: row.tenantLegalEntity.type }
       : null,
@@ -235,21 +275,6 @@ export async function confirmC168(db: Db, access: AccountAccess | null, accountI
 // they're a tenant, not an owner/collaborator), so there's no `accountId`/`AccountAccess` to check
 // here. Possession of the code is the authorization.
 
-// legal_entities.type doesn't distinguish PFA/II/IF or SRL/SA (Section 3.1) — only whether either
-// side is UNREGISTERED_INDIVIDUAL matters for deriving contract_type. A registered owner (any
-// business form) always issues e-Factura regardless of who the tenant is — B2B and B2C both map to
-// the same REGISTERED_ANAF value (Section 1's informal labels aren't stored, only the 3-way
-// contract_type enum). Only an unregistered-individual owner branches by whether the tenant's own
-// entity is registered too — same collapse as the owner side (2026-07-27 consolidation replaced the
-// separate INDIVIDUAL/COMPANY tenant_type with this, symmetric on both sides now).
-function deriveContractType(
-  ownerLegalEntityType: "UNREGISTERED_INDIVIDUAL" | "REGISTERED_INDIVIDUAL" | "REGISTERED_COMPANY",
-  tenantLegalEntityType: "UNREGISTERED_INDIVIDUAL" | "REGISTERED_INDIVIDUAL" | "REGISTERED_COMPANY",
-): "REGISTERED_ANAF" | "C2B_WITHHOLDING" | "UNREGISTERED_C2C" {
-  if (ownerLegalEntityType !== "UNREGISTERED_INDIVIDUAL") return "REGISTERED_ANAF";
-  return tenantLegalEntityType === "UNREGISTERED_INDIVIDUAL" ? "UNREGISTERED_C2C" : "C2B_WITHHOLDING";
-}
-
 const claimInput = z.object({
   associationCode: z.string().trim().min(1),
   tenantLegalEntityId: z.string().uuid(),
@@ -260,40 +285,34 @@ export async function claimTenancy(db: Db, userId: string, body: unknown) {
   const code = input.associationCode.trim().toUpperCase();
 
   const [tenantEntity] = await db
-    .select()
+    .select({ id: legalEntities.id })
     .from(legalEntities)
     .where(and(eq(legalEntities.id, input.tenantLegalEntityId), eq(legalEntities.userId, userId)))
     .limit(1);
   if (!tenantEntity) throw new HttpError(404, "Entitate legală invalidă");
 
-  const [row] = await db
-    .select({ tenancy: tenancies, ownerLegalEntity: legalEntities })
-    .from(tenancies)
-    .innerJoin(units, eq(units.id, tenancies.unitId))
-    .innerJoin(legalEntities, eq(legalEntities.id, units.legalEntityId))
-    .where(eq(tenancies.associationCode, code))
-    .limit(1);
-  if (!row) throw new HttpError(404, "Cod de asociere invalid");
-  if (row.tenancy.status !== "PENDING_TENANT") throw new HttpError(409, "Această chirie a fost deja asociată");
-
-  const contractType = deriveContractType(row.ownerLegalEntity.type, tenantEntity.type);
+  const [tenancy] = await db.select().from(tenancies).where(eq(tenancies.associationCode, code)).limit(1);
+  if (!tenancy) throw new HttpError(404, "Cod de asociere invalid");
+  if (tenancy.status !== "PENDING_TENANT") throw new HttpError(409, "Această chirie a fost deja asociată");
 
   // `associationCode` is kept, not nulled — the owner still needs to see which code was used
   // (Închirieri keeps it visible after association). Re-claiming is already blocked above by the
   // `status !== "PENDING_TENANT"` check, so clearing it isn't needed for that guard either.
+  // `contractType` isn't computed/stored here — `withTenantLegalEntity` below derives it fresh from
+  // whatever `tenantEntity`'s current `type` is (2026-07-28).
   await db
     .update(tenancies)
-    .set({ tenantLegalEntityId: tenantEntity.id, contractType, status: "ACTIVE" })
-    .where(eq(tenancies.id, row.tenancy.id));
+    .set({ tenantLegalEntityId: tenantEntity.id, status: "ACTIVE" })
+    .where(eq(tenancies.id, tenancy.id));
 
   await db.insert(tenancyMemberships).values({
-    tenancyId: row.tenancy.id,
+    tenancyId: tenancy.id,
     userId,
     role: "PRIMARY_TENANT",
     acceptedAt: new Date(),
   });
 
-  return withTenantLegalEntity(db, row.tenancy.id);
+  return withTenantLegalEntity(db, tenancy.id);
 }
 
 // The tenant has no account_membership to scope a request by — this is scoped by
@@ -302,9 +321,8 @@ export async function claimTenancy(db: Db, userId: string, body: unknown) {
 // GET /accounts/{accountId}/units or .../legal-entities, they have no accountId at all).
 // `legalEntity` is who the tenant is renting *from* (the owner's own entity, via units.legal_entity_id
 // — unrelated to the tenant); `tenantLegalEntity` is who the tenant is renting *as* (their own entity,
-// picked at claim time) — both joins of the same `legal_entities` table, so the second needs an alias.
-const tenantLegalEntities = alias(legalEntities, "tenant_legal_entities");
-
+// picked at claim time) — both joins of the same `legal_entities` table, using the `tenantLegalEntities`
+// alias defined above (shared with `listTenancies`/`withTenantLegalEntity`).
 export async function listMyTenancies(db: Db, userId: string) {
   const rows = await db
     .select({
@@ -324,6 +342,7 @@ export async function listMyTenancies(db: Db, userId: string) {
 
   return rows.map((row) => ({
     ...row.tenancy,
+    contractType: deriveContractType(row.legalEntity.type, row.tenantLegalEntity.type),
     unit: { id: row.unit.id, label: row.unit.label, type: row.unit.type },
     property: {
       id: row.property.id,

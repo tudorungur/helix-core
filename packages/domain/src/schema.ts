@@ -62,11 +62,9 @@ export const utilityType = pgEnum("utility_type", [
 // no formula, the owner just types in whatever amount was announced (e.g. HEATING under
 // termoficare/centralized district heating, Section 3.1's utility_type note).
 export const tariffBasis = pgEnum("tariff_basis", ["METER_INDEX", "FIXED_COST", "DECLARED"]);
-export const contractType = pgEnum("contract_type", [
-  "REGISTERED_ANAF",
-  "C2B_WITHHOLDING",
-  "UNREGISTERED_C2C",
-]);
+// No `contract_type` DB enum (removed 2026-07-28, along with the `tenancies.contract_type` column it
+// backed) — see the note on `tenancies` below for why this became a purely computed value instead of
+// a stored one.
 export const currencyCode = pgEnum("currency_code", ["EUR", "RON"]);
 export const tenancyMembershipRole = pgEnum("tenancy_membership_role", [
   "PRIMARY_TENANT",
@@ -246,12 +244,15 @@ export const tenancies = pgTable("tenancies", {
   unitId: uuid("unit_id").notNull().references(() => units.id),
   startDate: date("start_date").notNull(),
   endDate: date("end_date"),
-  // Nullable: unknown until the tenant claims the association_code and picks which of their own
-  // legal_entities they're renting as (Section 4.4) — contract_type is then *derived* from that
-  // entity's type × the unit's own legal_entity.type, never asked directly. `status` carries the
-  // interim lifecycle ("PENDING_TENANT" until claimed, "ACTIVE" after) — free-form varchar, not an
-  // enum, so this phasing didn't need a schema change.
-  contractType: contractType("contract_type"),
+  // No `contract_type` column (removed 2026-07-28) — it used to be computed once at claim time and
+  // stored, which went stale the moment either side's legal_entities.type changed afterward (real bug:
+  // a tenant edited their own entity from a company to Persoană Fizică post-claim, and the owner's
+  // Închirieri screen kept showing C2B_WITHHOLDING-flavored C168/D212 text instead of switching to
+  // UNREGISTERED_C2C). Now computed fresh on every read, in every services/tenancies handler that
+  // returns a tenancy, from the *current* `type` of the unit's own legal_entity × the tenant's own
+  // picked legal_entity (`deriveContractType`, services/tenancies/src/handlers.ts) — null whenever
+  // `tenant_legal_entity_id` is null (unclaimed). `status` carries the interim lifecycle
+  // ("PENDING_TENANT" until claimed, "ACTIVE" after) — free-form varchar, not an enum.
   status: varchar("status", { length: 30 }).notNull(),
   rentAmount: numeric("rent_amount").notNull(),
   rentCurrency: currencyCode("rent_currency").notNull(),

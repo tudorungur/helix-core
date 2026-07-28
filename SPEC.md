@@ -174,7 +174,7 @@ users (Cognito sub) ──┬── account_memberships ──> accounts ──>
   genuinely varies every billing cycle; this needs its own per-period value, most likely as part of
   whatever Section 4.6's invoice-generation data model ends up being, not solved here.
 - **tenancies** — the rental contract on a unit.
-  `id`, `unit_id`, `start_date`, `end_date`, `contract_type [REGISTERED_ANAF|C2B_WITHHOLDING|UNREGISTERED_C2C]`,
+  `id`, `unit_id`, `start_date`, `end_date`,
   `status`, `rent_amount`, `rent_currency [EUR|RON]` (base rent as negotiated — in Romania typically
   EUR-indexed even when invoiced in RON; kept flexible for contracts already denominated in RON),
   `anaf_c168_registered bool` (default `false`), `anaf_c168_registration_date NULL` — tracks whether the
@@ -190,17 +190,24 @@ users (Cognito sub) ──┬── account_memberships ──> accounts ──>
   Also `tenant_legal_entity_id` (2026-07-27, replacing the earlier flat
   `tenant_type`/`tenant_company_name`/`tenant_company_cui`/`tenant_individual_name` columns) — a live
   reference to one of the tenant's own `legal_entities` (`user_id`-scoped), picked at claim time (§4.4),
-  the direct counterpart to `units.legal_entity_id` on the owner side. The informal B2B/C2B vs B2C/C2C
-  label (Section 1) is derived from this entity's own `type` the same way the owner side derives it from
-  `legal_entities.type` — `UNREGISTERED_INDIVIDUAL` reads as an individual tenant, `REGISTERED_INDIVIDUAL`/
-  `REGISTERED_COMPANY` both read as a business tenant (same collapse `deriveContractType` already applies
-  to the owner side). `association_code` (nullable, short alphanumeric) — generated when the owner creates
-  the tenancy, kept (not cleared) once a tenant links to it via self-registration (Section 4.4); replaces the older
-  email/SMS-invite-only flow.
+  the direct counterpart to `units.legal_entity_id` on the owner side.
+  **No `contract_type` column** (removed 2026-07-28, along with the DB enum backing it) — it used to be
+  computed once at claim time and stored, which went stale the moment either side's own
+  `legal_entities.type` changed afterward (a real bug: a tenant edited their own entity from a company to
+  Persoană Fizică *after* claiming, and the owner's Închirieri screen kept showing the old
+  `C2B_WITHHOLDING`-flavored C168/D212 text instead of switching to `UNREGISTERED_C2C`). `contract_type`
+  is now computed fresh on every read (`REGISTERED_ANAF`/`C2B_WITHHOLDING`/`UNREGISTERED_C2C`, Section 1's
+  informal B2B/C2B vs B2C/C2C label), by every `services/tenancies` handler that returns a tenancy, from
+  the *current* `type` of the unit's own `legal_entity` × the tenant's own picked `legal_entity`
+  (`deriveContractType`, `services/tenancies/src/handlers.ts`) — `UNREGISTERED_INDIVIDUAL` reads as an
+  individual, `REGISTERED_INDIVIDUAL`/`REGISTERED_COMPANY` both read as a business (same collapse on
+  either side), null whenever `tenant_legal_entity_id` is null (unclaimed). `association_code` (nullable,
+  short alphanumeric) — generated when the owner creates the tenancy, kept (not cleared) once a tenant
+  links to it via self-registration (Section 4.4); replaces the older email/SMS-invite-only flow.
 
-  *Implementation status*: `contract_type` and `tenant_legal_entity_id` are **nullable** — neither is
-  knowable until the tenant claims the `association_code` and picks one of their own `legal_entities`
-  (Section 4.4), so the owner-side "create a tenancy, get a code" step can't populate them. `status`
+  *Implementation status*: `tenant_legal_entity_id` is **nullable** — not knowable until the tenant
+  claims the `association_code` and picks one of their own `legal_entities` (Section 4.4), so the
+  owner-side "create a tenancy, get a code" step can't populate it. `status`
   (free-form varchar, not an enum) carries the interim lifecycle: `"PENDING_TENANT"` from creation until a
   tenant claims the code, `"ACTIVE"` after.
 - **bnr_exchange_rates** — daily FX reference rates cached from BNR's public feed.
@@ -449,12 +456,12 @@ data-minimization rationale:**
   Either way it's **per-`legal_entity`, asked at most once** — a second tenancy under the same legal entity
   never asks again, but a tenancy under a *different* legal entity on the same account might, if that one's
   fiscal data isn't filled in yet.
-- `contract_type` (`REGISTERED_ANAF`/`C2B_WITHHOLDING`/`UNREGISTERED_C2C`) is then derived automatically
-  from the owner's unit's `legal_entities.type` × the tenant's own picked `legal_entities.type` — the same
-  3-way enum on both sides now (`UNREGISTERED_INDIVIDUAL` vs. `REGISTERED_INDIVIDUAL`/`REGISTERED_COMPANY`,
-  the latter two collapsing together on either side, Section 3.1's `legal_entities` note) — the app never
-  asks "is this B2B/B2C/C2B/C2C?" as a literal question (Section 1's note: those labels aren't stored as
-  their own value anywhere).
+- `contract_type` (`REGISTERED_ANAF`/`C2B_WITHHOLDING`/`UNREGISTERED_C2C`) is then derived — freshly, on
+  every read, never stored (Section 3.1's `tenancies` note) — from the owner's unit's `legal_entities.type`
+  × the tenant's own picked `legal_entities.type`, the same 3-way enum on both sides now
+  (`UNREGISTERED_INDIVIDUAL` vs. `REGISTERED_INDIVIDUAL`/`REGISTERED_COMPANY`, the latter two collapsing
+  together on either side) — the app never asks "is this B2B/B2C/C2B/C2C?" as a literal question (Section
+  1's note: those labels aren't stored as their own value anywhere).
 
 `tenancy_membership` is created once all of the above resolves. `association_code` is **kept**, not
 cleared, once claimed (changed 2026-07-27 — the owner still needs to see which code was used; re-claiming
