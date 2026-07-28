@@ -3,6 +3,7 @@ import { Alert, Modal, Pressable, StyleSheet, Text, TouchableOpacity, View } fro
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { formStyles } from "../components/formStyles";
+import { useAccountStore } from "../context/accountStore";
 import { useContextStore } from "../context/contextStore";
 import type { AppContext } from "../context/contextStore";
 
@@ -19,14 +20,25 @@ const HEADER_HEIGHT = 44;
 // sheet/alert) — ActionSheetIOS/Alert.alert were tried first and replaced because they read as a
 // full system overlay taking over the screen, not an in-place expansion. Always offers both
 // contexts, not just the ones the user has — picking one they don't yet prompts to activate it
-// (§4.1 "Become a landlord" / §4.4 linking a tenancy via association code).
+// (§4.1 "Become a landlord" / §4.4 linking a tenancy via association code). Also doubles as the
+// account switcher (added 2026-07-28) — a second section, shown only in Owner context and only
+// when the user actually has more than one `account` (the common case has exactly one, so nothing
+// changes for it) — a tenant has no `account` concept at all, so this never applies there.
 export function ContextTitle() {
   const activeContext = useContextStore((state) => state.activeContext);
   const availableContexts = useContextStore((state) => state.availableContexts);
   const setActiveContext = useContextStore((state) => state.setActiveContext);
   const addContext = useContextStore((state) => state.addContext);
+  const accounts = useAccountStore((state) => state.accounts);
+  const activeAccountId = useAccountStore((state) => state.activeAccountId);
+  const setActiveAccountId = useAccountStore((state) => state.setActiveAccountId);
   const insets = useSafeAreaInsets();
   const [open, setOpen] = useState(false);
+
+  const switchAccount = (id: string) => {
+    setOpen(false);
+    setActiveAccountId(id);
+  };
 
   const activate = (context: AppContext) => {
     setOpen(false);
@@ -83,6 +95,22 @@ export function ContextTitle() {
                   {context === activeContext ? <Text style={styles.optionCheck}>✓</Text> : null}
                 </TouchableOpacity>
               ))}
+              {activeContext === "OWNER" && accounts.length > 1 ? (
+                <>
+                  <View style={styles.sectionDivider} />
+                  <Text style={styles.sectionLabel}>Cont activ</Text>
+                  {accounts.map((account, index) => (
+                    <TouchableOpacity
+                      key={account.id}
+                      style={[styles.option, index > 0 && styles.optionDivider]}
+                      onPress={() => switchAccount(account.id)}
+                    >
+                      <Text style={styles.optionText}>{account.name}</Text>
+                      {account.id === activeAccountId ? <Text style={styles.optionCheck}>✓</Text> : null}
+                    </TouchableOpacity>
+                  ))}
+                </>
+              ) : null}
             </View>
           </Pressable>
         </Modal>
@@ -110,6 +138,18 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 6,
     elevation: 4,
+  },
+  // Separates the role list (Proprietar/Chiriaș) from the account list below it — same hairline
+  // language used everywhere else in the app for "boundary between two labeled groups".
+  sectionDivider: { height: StyleSheet.hairlineWidth, backgroundColor: "#ccc" },
+  sectionLabel: {
+    color: "#8e8e93",
+    fontSize: 12,
+    fontWeight: "600",
+    letterSpacing: 0.5,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 2,
   },
   option: {
     flexDirection: "row",
