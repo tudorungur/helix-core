@@ -2,12 +2,14 @@ import { useEffect } from "react";
 import { getFocusedRouteNameFromRoute } from "@react-navigation/native";
 import type { RouteProp } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import { StyleSheet, View } from "react-native";
 
 import { useAccountStore } from "../context/accountStore";
 import { useContextStore } from "../context/contextStore";
 import type { AppContext } from "../context/contextStore";
 import { usePortfolioStore } from "../context/portfolioStore";
 import { ContextTitle } from "./ContextTitle";
+import { NotificationsButton } from "./NotificationsButton";
 import { OWNER_TAB_LABELS, OwnerTabs } from "./OwnerTabs";
 import type { OwnerTabsParamList } from "./OwnerTabs";
 import { SignOutButton } from "./SignOutButton";
@@ -23,15 +25,16 @@ const Stack = createNativeStackNavigator<AppStackParamList>();
 // OwnerTabs/TenantTabs hide their own headers — this is the single header for the whole
 // authenticated app. ContextTitle/SignOutButton chips stay fixed left/right; the title tracks
 // whichever tab is currently focused inside whichever tab navigator is mounted, so it never shows
-// the stack route's own name ("Main") instead of an actual screen name.
+// the stack route's own name ("Main") instead of an actual screen name. Both tab sets now land on
+// "Home" (Acasă, 2026-07-28) instead of their previous first tab.
 function getHeaderTitle(activeContext: AppContext, route: RouteProp<AppStackParamList, "Main">) {
   const focusedRouteName = getFocusedRouteNameFromRoute(route);
   if (activeContext === "OWNER") {
-    const key = (focusedRouteName ?? "Portfolio") as keyof OwnerTabsParamList;
-    return OWNER_TAB_LABELS[key] ?? OWNER_TAB_LABELS.Portfolio;
+    const key = (focusedRouteName ?? "Home") as keyof OwnerTabsParamList;
+    return OWNER_TAB_LABELS[key] ?? OWNER_TAB_LABELS.Home;
   }
-  const key = (focusedRouteName ?? "MyTenancies") as keyof TenantTabsParamList;
-  return TENANT_TAB_LABELS[key] ?? TENANT_TAB_LABELS.MyTenancies;
+  const key = (focusedRouteName ?? "Home") as keyof TenantTabsParamList;
+  return TENANT_TAB_LABELS[key] ?? TENANT_TAB_LABELS.Home;
 }
 
 // Section 5.1 — authenticated stack. A user with both an account_membership and a
@@ -67,7 +70,14 @@ export function AppStack() {
         options={({ route }) => ({
           title: getHeaderTitle(activeContext, route),
           headerLeft: () => <ContextTitle />,
-          headerRight: () => <SignOutButton />,
+          // NotificationsButton added 2026-07-28 — shared by both contexts, replacing what used to
+          // be a Tenant-only tab (no real content behind it either way yet).
+          headerRight: () => (
+            <View style={styles.headerRight}>
+              <NotificationsButton />
+              <SignOutButton />
+            </View>
+          ),
         })}
       >
         {() => (activeContext === "OWNER" ? <OwnerTabs /> : <TenantTabs />)}
@@ -75,3 +85,7 @@ export function AppStack() {
     </Stack.Navigator>
   );
 }
+
+const styles = StyleSheet.create({
+  headerRight: { flexDirection: "row", alignItems: "center", gap: 8 },
+});
