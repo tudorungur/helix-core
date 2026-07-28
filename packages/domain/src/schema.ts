@@ -131,7 +131,21 @@ export const legalEntities = pgTable(
     accountId: uuid("account_id").references(() => accounts.id),
     userId: uuid("user_id").references(() => users.id),
     type: legalEntityType("type").notNull(),
+    // The rendered/display name — for a business form (PFA/II/IF/SRL/SA) this is the only name
+    // collected (the trade/company name, plain). For PF, this is `${firstName} ${lastName}`.trim(),
+    // computed and stored server-side (2026-07-28) — see `firstName`/`lastName` below for why it's
+    // not the *only* place a PF's name lives.
     legalName: varchar("legal_name", { length: 200 }),
+    // PF-only (NULL for business forms) — Nume/Prenume kept as their own columns, not just folded
+    // into `legalName`, because concatenating them into one string with no separator made editing
+    // lossy: re-opening the form had to *guess* where Prenume ended and Nume began (a naive
+    // first-space split), which silently mangled any Prenume or Nume containing more than one word
+    // (e.g. Prenume "Tudor Vlad" + Nume "Ungur" → stored "Tudor Vlad Ungur" → re-split as Prenume
+    // "Tudor" / Nume "Vlad Ungur", a real bug the user hit and reported 2026-07-28). `firstName` =
+    // Prenume, `lastName` = Nume (English column names, Romanian UI labels, same convention as the
+    // rest of this schema).
+    firstName: varchar("first_name", { length: 100 }),
+    lastName: varchar("last_name", { length: 100 }),
     // A CNP identifies exactly one person and a CUI exactly one company — either should back at
     // most one *account's* legal entity (the uniqueness the owner+collaborators matching flow
     // relies on, Section 3.1), and separately, at most one *other user's* legal entity (nobody else

@@ -96,15 +96,28 @@ users (Cognito sub) ──┬── account_memberships ──> accounts ──>
   above). A `tenancy` similarly references exactly one `legal_entity` (the tenant's own, picked at claim
   time — see below) — a single building (`property`) can have units billed under *different* legal
   entities, on both sides of the relationship.
-  `id`, `account_id NULL`, `user_id NULL`, `type [REGISTERED_INDIVIDUAL|REGISTERED_COMPANY|UNREGISTERED_INDIVIDUAL]`, `legal_name`,
-  `cui_cnp` (**unique among account-scoped rows** — a partial index, `WHERE account_id IS NOT NULL`, not a
-  plain column-level unique — 2026-07-27), `vat_payer bool`, `invoice_series`, `invoice_next_number`,
-  `anaf_oauth_status`. `cui_cnp` being unique among an *account's* own entities is what makes the
-  owner+collaborators model work: a CNP identifies exactly one person and a CUI exactly one company, so
-  it's the real key tying an `account` together — the owner and
+  `id`, `account_id NULL`, `user_id NULL` (exactly one of the two, enforced by a DB `CHECK` — 2026-07-27),
+  `type [REGISTERED_INDIVIDUAL|REGISTERED_COMPANY|UNREGISTERED_INDIVIDUAL]`, `legal_name`,
+  `first_name NULL`, `last_name NULL` — PF-only (Nume/Prenume; `first_name` = Prenume, `last_name` = Nume),
+  stored as their own columns rather than only living inside the concatenated `legal_name` (2026-07-28
+  fix: concatenating them into one string with no separator made editing lossy — re-opening the form had
+  to *guess* where Prenume ended and Nume began, silently mangling any Prenume or Nume containing more
+  than one word, a real bug the user hit in production data). `legal_name` for a PF row is
+  `${first_name} ${last_name}`.trim(), computed server-side (`packages/domain/src/legalEntity.ts`'s
+  `toLegalEntityRow`/`toLegalEntityPatch`) — the one place that ever assembles it, not duplicated
+  client-side.
+  `cui_cnp` (**unique among account-scoped rows, and separately unique among user-scoped rows** — two
+  partial indexes, `WHERE account_id IS NOT NULL` / `WHERE user_id IS NOT NULL`, not a plain column-level
+  unique — 2026-07-27/28), `vat_payer bool`, `invoice_series`, `invoice_next_number`, `anaf_oauth_status`.
+  `cui_cnp` being unique among an *account's* own entities is what makes the owner+collaborators model
+  work: a CNP identifies exactly one person and a CUI exactly one company, so it's the real key tying an
+  `account` together — the owner and
   every collaborator they invite (Section 4.2) sign up under their *own* email but all land on
   `account_membership` rows against the same `account`, found via a CUI/CNP that already backs one of that
-  account's `legal_entities`.
+  account's `legal_entities`. The symmetric user-scoped index exists for the same reason on the tenant
+  side: nobody else should be able to claim the same CNP as their own personal identity either — but the
+  two scopes are deliberately *not* cross-unique, since the same physical person's CNP legitimately backs
+  both their own account-scoped entity (landlord) and user-scoped entity (tenant elsewhere) at once.
   Named for fiscal registration status, deliberately *not* reusing the informal B2B/B2C/C2B/C2C shorthand
   above — that labels the *tenancy* (Section 1), and is a function of the tenant's own picked
   `legal_entities.type` (`tenancies.tenant_legal_entity_id`), completely

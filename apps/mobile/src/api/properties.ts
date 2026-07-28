@@ -15,6 +15,11 @@ export type ApiLegalEntity = {
   userId: string | null;
   type: ApiLegalEntityType;
   legalName: string | null;
+  // PF only (null for business forms) — Nume/Prenume as their own columns, not just folded into
+  // `legalName` (2026-07-28: fixes a real edit round-trip bug — see `legal_entities.firstName` in
+  // schema.ts for the full story). `firstName` = Prenume, `lastName` = Nume.
+  firstName: string | null;
+  lastName: string | null;
   cuiCnp: string | null;
   vatPayer: boolean;
   invoiceSeries: string | null;
@@ -22,7 +27,12 @@ export type ApiLegalEntity = {
 
 export type ApiLegalEntityInput = {
   legalForm: ApiLegalForm;
-  name: string;
+  // Business forms send `name` (trade/company name). PF sends `firstName`+`lastName` instead — the
+  // server computes `legalName` from them, so there's exactly one place that ever assembles the
+  // display string.
+  name?: string;
+  firstName?: string;
+  lastName?: string;
   // `null` (not just omitted) clears a previously-set value — omitting the key means "don't touch
   // this column" server-side, which can't express "the user emptied this field."
   cuiCnp?: string | null;

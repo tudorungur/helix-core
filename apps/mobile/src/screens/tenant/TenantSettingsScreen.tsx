@@ -55,9 +55,9 @@ export function TenantSettingsScreen() {
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [legalForm, setLegalForm] = useState<LegalForm | null>(null);
-  // `name` is only used for business forms ("Denumire firmă") — Persoană Fizică collects Nume/Prenume
-  // as two separate fields below, concatenated into the same `legal_entities.name` column on submit
-  // (same pattern as OwnerSettingsScreen/SignUpScreen).
+  // `name` is only used for business forms ("Denumire firmă") — Persoană Fizică sends `nume`/`prenume`
+  // as their own separate fields instead (2026-07-28, see OwnerSettingsScreen's own comment — fixes a
+  // real edit round-trip bug that came from concatenating them into one string).
   const [name, setName] = useState("");
   const [nume, setNume] = useState("");
   const [prenume, setPrenume] = useState("");
@@ -108,11 +108,8 @@ export function TenantSettingsScreen() {
     setEditingId(id);
     setLegalForm(entity.legalForm);
     if (entity.legalForm === "PF") {
-      // Best-effort split on the first space — see OwnerSettingsScreen's openEdit for why an exact
-      // round-trip isn't possible once Nume/Prenume are concatenated into one stored column.
-      const spaceIndex = entity.name.indexOf(" ");
-      setPrenume(spaceIndex === -1 ? entity.name : entity.name.slice(0, spaceIndex));
-      setNume(spaceIndex === -1 ? "" : entity.name.slice(spaceIndex + 1));
+      setPrenume(entity.firstName ?? "");
+      setNume(entity.lastName ?? "");
     } else {
       setName(entity.name);
     }
@@ -130,7 +127,9 @@ export function TenantSettingsScreen() {
     const fullName = isBusinessForm ? name.trim() : `${prenume.trim()} ${nume.trim()}`.trim();
     const input = {
       legalForm,
-      name: fullName,
+      name: isBusinessForm ? name.trim() : undefined,
+      firstName: isBusinessForm ? undefined : prenume.trim(),
+      lastName: isBusinessForm ? undefined : nume.trim(),
       cuiCnp: cui.trim() || null,
       vatPayer: isBusinessForm ? (vatPayer ?? undefined) : undefined,
     };

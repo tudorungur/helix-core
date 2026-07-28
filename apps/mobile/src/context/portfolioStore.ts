@@ -35,6 +35,12 @@ export type LegalEntity = {
   legalForm: LegalForm;
   type: LegalEntityType;
   name: string;
+  // PF only — Nume/Prenume as their own fields, not just parsed back out of `name` (2026-07-28,
+  // fixes a real edit round-trip bug: concatenating them into one string with no separator made a
+  // multi-word Nume or Prenume impossible to split back apart correctly). `firstName` = Prenume,
+  // `lastName` = Nume.
+  firstName?: string;
+  lastName?: string;
   // Business forms only (PFA/II/IF/SRL/SA) — collected immediately at creation (Section 4.3), since
   // a CUI-bearing entity has no purpose without its CUI. Persoană Fizică's CNP is optional, entered
   // whenever it's actually needed (e.g. a C2B_WITHHOLDING tenancy's withholding statement) rather
@@ -46,7 +52,11 @@ export type LegalEntity = {
 
 export type LegalEntityInput = {
   legalForm: LegalForm;
-  name: string;
+  // Business forms send `name`; PF sends `firstName`+`lastName` instead — the server assembles the
+  // display name from them (see api/properties.ts's ApiLegalEntityInput).
+  name?: string;
+  firstName?: string;
+  lastName?: string;
   // `null` (not just omitted/undefined) explicitly clears a previously-set value on update — see
   // OwnerSettingsScreen.tsx's submitForm and api/properties.ts's ApiLegalEntityInput for why.
   cuiCnp?: string | null;
@@ -273,6 +283,8 @@ function fromApiLegalEntity(api: ApiLegalEntity): LegalEntity {
     legalForm: REPRESENTATIVE_LEGAL_FORM[api.type],
     type: api.type,
     name: api.legalName ?? "",
+    firstName: api.firstName ?? undefined,
+    lastName: api.lastName ?? undefined,
     cuiCnp: api.cuiCnp ?? undefined,
     vatPayer: api.vatPayer,
     invoiceSeries: api.invoiceSeries ?? undefined,

@@ -42,9 +42,10 @@ export function OwnerSettingsScreen() {
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [legalForm, setLegalForm] = useState<LegalForm | null>(null);
-  // `name` is only used for business forms ("Denumire firmă") now — Persoană Fizică collects Nume
-  // and Prenume as two separate fields below, matching SignUpScreen's pattern, and gets concatenated
-  // into the same `legal_entities.name` column on submit.
+  // `name` is only used for business forms ("Denumire firmă") — Persoană Fizică sends `nume`/`prenume`
+  // as their own separate fields instead (2026-07-28 — previously concatenated into one string here
+  // and un-split with a lossy heuristic on edit, which broke on a multi-word Nume/Prenume; now stored
+  // as their own columns, see LegalEntity.firstName/lastName).
   const [name, setName] = useState("");
   const [nume, setNume] = useState("");
   const [prenume, setPrenume] = useState("");
@@ -107,12 +108,8 @@ export function OwnerSettingsScreen() {
     setEditingId(id);
     setLegalForm(entity.legalForm);
     if (entity.legalForm === "PF") {
-      // The stored name is a single "Prenume Nume" string (see submitForm) — there's no reliable way
-      // to un-concatenate it back into two fields, so this is a best-effort split on the first space,
-      // matching the order it was joined in.
-      const spaceIndex = entity.name.indexOf(" ");
-      setPrenume(spaceIndex === -1 ? entity.name : entity.name.slice(0, spaceIndex));
-      setNume(spaceIndex === -1 ? "" : entity.name.slice(spaceIndex + 1));
+      setPrenume(entity.firstName ?? "");
+      setNume(entity.lastName ?? "");
     } else {
       setName(entity.name);
     }
@@ -136,7 +133,9 @@ export function OwnerSettingsScreen() {
     const fullName = isBusinessForm ? name.trim() : `${prenume.trim()} ${nume.trim()}`.trim();
     const input = {
       legalForm,
-      name: fullName,
+      name: isBusinessForm ? name.trim() : undefined,
+      firstName: isBusinessForm ? undefined : prenume.trim(),
+      lastName: isBusinessForm ? undefined : nume.trim(),
       cuiCnp: cui.trim() || null,
       vatPayer: isBusinessForm ? (vatPayer ?? undefined) : undefined,
       invoiceSeries: invoiceSeries.trim() || null,
